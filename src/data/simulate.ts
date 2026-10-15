@@ -58,7 +58,8 @@ export function catchUp(monitors: Monitor[], alertOnRise: boolean): { monitors: 
 
   const updated = monitors.map((m) => {
     const last = m.history[m.history.length - 1];
-    if (!m.active || !last || last.date >= today) return m;
+    if (m.source !== 'simulado' || !m.sim || !m.active || !last || last.date >= today) return m;
+    const sim = m.sim;
 
     const history = [...m.history];
     let prev = last.value;
@@ -68,7 +69,7 @@ export function catchUp(monitors: Monitor[], alertOnRise: boolean): { monitors: 
 
     while (date < today) {
       date = addDays(date, 1);
-      const value = nextValue(m.id, date, prev, m.sim);
+      const value = nextValue(m.id, date, prev, sim);
       history.push({ date, value });
       const alert = evaluate(m, prev, value, date, alertOnRise);
       if (alert) alerts.push(alert);
@@ -85,7 +86,7 @@ export function recheckToday(monitors: Monitor[], alertOnRise: boolean): { monit
   const alerts: Alert[] = [];
   const updated = monitors.map((m) => {
     const last = m.history[m.history.length - 1];
-    if (!m.active || !last) return m;
+    if (m.source !== 'simulado' || !m.sim || !m.active || !last) return m;
     const value = nextValue(m.id, last.date, last.value, m.sim, Math.random);
     const alert = evaluate(m, last.value, value, last.date, alertOnRise);
     if (alert) alerts.push(alert);

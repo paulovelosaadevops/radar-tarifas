@@ -3,9 +3,9 @@ import { LineChart, Sparkline, type ChartSeries } from '../components/charts';
 import { Delta, EmptyState, PageHeader, RangeFilter, Toast } from '../components/common';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { MonitorForm } from '../components/MonitorForm';
+import { NewMonitor } from '../components/NewMonitor';
 import { monitorStats, useRange } from '../data/stats';
-import { useStore } from '../data/store';
+import { useStore, type NewMonitor as NewMonitorData } from '../data/store';
 import { CATEGORY_LABEL, type Monitor } from '../data/types';
 import { brl, pct, signedPct } from '../lib/format';
 import { navigate } from '../lib/router';
@@ -14,7 +14,7 @@ const SERIES_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
 type Slots = [string | null, string | null, string | null];
 
 export function Dashboard() {
-  const { monitors, unreadCount, checkNow, addMonitor } = useStore();
+  const { monitors, unreadCount, checkNow, addMonitor, refreshing } = useStore();
   const [range, setRange] = useRange('dashboard');
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -57,12 +57,14 @@ export function Dashboard() {
   const below = withTarget.filter((x) => x.s.belowTarget);
   const biggestDrop = stats.reduce<(typeof stats)[number] | null>((best, x) => (!best || x.s.change < best.s.change ? x : best), null);
 
-  const onCheck = () => {
-    const found = checkNow();
-    setToast(found === 0 ? 'Preços verificados. Nenhuma mudança relevante.' : `${found} ${found === 1 ? 'novo alerta' : 'novos alertas'}.`);
+  const onCheck = async () => {
+    const { alerts, errors } = await checkNow();
+    const parts = [alerts === 0 ? 'Preços verificados. Nenhuma mudança relevante.' : `${alerts} ${alerts === 1 ? 'novo alerta' : 'novos alertas'}.`];
+    if (errors) parts.push(`${errors} ${errors === 1 ? 'busca falhou' : 'buscas falharam'}.`);
+    setToast(parts.join(' '));
   };
 
-  const onCreate = (data: Parameters<typeof addMonitor>[0]) => {
+  const onCreate = (data: NewMonitorData) => {
     const id = addMonitor(data);
     setAdding(false);
     navigate(`/monitor/${id}`);
@@ -75,8 +77,8 @@ export function Dashboard() {
         subtitle={`${active.length} ${active.length === 1 ? 'monitor ativo' : 'monitores ativos'}`}
         actions={
           <>
-            <button type="button" className="btn" onClick={onCheck}>
-              <Icon name="refresh" size={18} />
+            <button type="button" className="btn" onClick={onCheck} disabled={refreshing} title="Busca os preços de hoje">
+              <Icon name="refresh" size={18} className={refreshing ? 'spin' : undefined} />
               <span className="hide-sm">Verificar agora</span>
             </button>
             <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
@@ -178,7 +180,7 @@ export function Dashboard() {
 
       {adding && (
         <Modal title="Novo monitor" onClose={() => setAdding(false)}>
-          <MonitorForm onSubmit={onCreate} onCancel={() => setAdding(false)} />
+          <NewMonitor onCreate={onCreate} onCancel={() => setAdding(false)} />
         </Modal>
       )}
       {toast && <Toast message={toast} onDone={clearToast} />}
@@ -194,6 +196,14 @@ function MonitorCard({ monitor: m, range }: { monitor: Monitor; range: number })
     <button type="button" className={`monitor-card${m.active ? '' : ' is-paused'}`} onClick={() => navigate(`/monitor/${m.id}`)}>
       <div className="monitor-card-top">
         <span className="tag">{CATEGORY_LABEL[m.category]}</span>
+        {m.source === 'simulado' && <span className="tag tag-muted">Exemplo</span>}
+        {m.source === 'serpapi' && m.insights?.priceLevel !== 'low' && !m.lastError && <span className="tag tag-live">Preço real</span>}
+        {m.source === 'serpapi' && m.insights?.priceLevel === 'low' && <span className="tag tag-good">Preço baixo</span>}
+        {m.lastError && (
+          <span className="tag tag-bad" title={m.lastError}>
+            Falha na busca
+          </span>
+        )}
         {!m.active && <span className="tag tag-muted">Pausado</span>}
       </div>
       <h3 className="monitor-card-name">{m.name}</h3>
@@ -202,7 +212,7 @@ function MonitorCard({ monitor: m, range }: { monitor: Monitor; range: number })
         <span className="price">{brl(s.current)}</span>
         {m.unit && <span className="unit">{m.unit}</span>}
       </div>
-      <Delta change={s.change} suffix={`em ${range} dias`} />
+      {s.points.length > 1 ? <Delta change={s.change} suffix={`em ${range} dias`} /> : <span className="delta delta-flat">Monitorando desde hoje</span>}
       {s.points.length > 1 && <Sparkline points={s.points} />}
       {gap != null && (
         <p className={`monitor-card-target${gap <= 0 ? ' is-hit' : ''}`}>

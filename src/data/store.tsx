@@ -1,18 +1,29 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { todayISO } from '../lib/dates';
+import { fetchMonitorPrice, isExpired } from '../lib/prices';
 import { uid } from '../lib/random';
 import { createSeed, DEFAULT_SETTINGS } from './seed';
-import { catchUp, recheckToday } from './simulate';
-import type { Alert, AppData, ChatMessage, Monitor, Settings } from './types';
+import { catchUp, evaluate, recheckToday } from './simulate';
+import type { Alert, AppData, ChatMessage, Monitor, MonitorQuery, PriceInsights, Settings } from './types';
 
 const STORAGE_KEY = 'radar-tarifas:v1';
+const MAX_HISTORY = 365;
+/** Limite de buscas reais automáticas por abertura do app (protege a cota do SerpApi) */
+const MAX_AUTO_REFRESH = 10;
 
 function load(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw) as AppData;
-      if (data?.version === 1) return { ...data, settings: { ...DEFAULT_SETTINGS, ...data.settings } };
+      if (data?.version === 1) {
+        return {
+          ...data,
+          settings: { ...DEFAULT_SETTINGS, ...data.settings },
+          // Monitores salvos antes da integração eram todos simulados
+          monitors: data.monitors.map((m) => ({ ...m, source: m.source ?? (m.sim ? 'simulado' : 'manual') })),
+        };
+      }
     }
   } catch {
     /* sem armazenamento disponível: segue com dados de exemplo */
@@ -28,16 +39,35 @@ function save(data: AppData) {
   }
 }
 
+/** Grava o preço de hoje (substitui se já houver um) e avalia alertas */
+function withPrice(m: Monitor, value: number, alertOnRise: boolean): { monitor: Monitor; alert: Alert | null } {
+  const today = todayISO();
+  const last = m.history[m.history.length - 1];
+  const sameDay = last?.date === today;
+  const prev = last?.value;
+  const history = sameDay ? [...m.history.slice(0, -1), { date: today, value }] : [...m.history, { date: today, value }];
+  const alert = prev != null ? evaluate(m, prev, value, today, alertOnRise) : null;
+  return { monitor: { ...m, history: history.slice(-MAX_HISTORY) }, alert };
+}
+
 export type NewMonitor = Pick<Monitor, 'name' | 'category' | 'detail' | 'unit' | 'targetPrice' | 'alertPct'> & {
   currentPrice: number;
+  source: 'serpapi' | 'manual';
+  query?: MonitorQuery;
+  insights?: PriceInsights | null;
 };
+
+export type CheckResult = { alerts: number; errors: number; checked: number };
 
 type Store = AppData & {
   unreadCount: number;
+  refreshing: boolean;
   addMonitor: (m: NewMonitor) => string;
   updateMonitor: (id: string, patch: Partial<Monitor>) => void;
   deleteMonitor: (id: string) => void;
-  checkNow: () => number;
+  recordPrice: (id: string, value: number) => void;
+  refreshMonitor: (id: string) => Promise<boolean>;
+  checkNow: () => Promise<CheckResult>;
   markAlertRead: (id: string) => void;
   markAllRead: () => void;
   clearAlerts: () => void;
@@ -74,17 +104,127 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return { ...loaded, monitors, alerts: [...alerts.reverse(), ...loaded.alerts] };
   });
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const dataRef = useRef(data);
   dataRef.current = data;
+  const busy = useRef(false);
+
+  const commit = useCallback((next: AppData) => {
+    dataRef.current = next;
+    setData(next);
+  }, []);
 
   useEffect(() => save(data), [data]);
 
+  /** Busca o preço real de um monitor e grava. Devolve o alerta gerado, se houver. */
+  const refreshOne = useCallback(
+    async (id: string): Promise<{ ok: boolean; alert: Alert | null }> => {
+      const m = dataRef.current.monitors.find((x) => x.id === id);
+      if (!m || m.source !== 'serpapi') return { ok: false, alert: null };
+      const now = new Date().toISOString();
+
+      if (isExpired(m, todayISO())) {
+        const d = dataRef.current;
+        commit({ ...d, monitors: d.monitors.map((x) => (x.id === id ? { ...x, lastError: 'A data da viagem já passou. Este monitor não é mais atualizado.' } : x)) });
+        return { ok: false, alert: null };
+      }
+
+      try {
+        const { price, insights } = await fetchMonitorPrice(m);
+        const d = dataRef.current;
+        const current = d.monitors.find((x) => x.id === id);
+        if (!current) return { ok: false, alert: null };
+        const { monitor, alert } = withPrice(current, price, d.settings.alertOnRise);
+        commit({
+          ...d,
+          monitors: d.monitors.map((x) => (x.id === id ? { ...monitor, insights, lastChecked: now, lastError: null } : x)),
+          alerts: alert ? [alert, ...d.alerts] : d.alerts,
+        });
+        return { ok: true, alert };
+      } catch (err) {
+        const d = dataRef.current;
+        const message = err instanceof Error ? err.message : 'Falha ao buscar o preço.';
+        commit({ ...d, monitors: d.monitors.map((x) => (x.id === id ? { ...x, lastChecked: now, lastError: message } : x)) });
+        return { ok: false, alert: null };
+      }
+    },
+    [commit],
+  );
+
+  /** Atualiza os monitores reais. force = ignora o "uma vez por dia". */
+  const refreshReal = useCallback(
+    async (force: boolean): Promise<CheckResult & { found: Alert[] }> => {
+      const today = todayISO();
+      const due = dataRef.current.monitors.filter(
+        (m) => m.source === 'serpapi' && m.active && !isExpired(m, today) && (force || !m.lastChecked || m.lastChecked.slice(0, 10) < today),
+      );
+      const list = force ? due : due.slice(0, MAX_AUTO_REFRESH);
+      const found: Alert[] = [];
+      let errors = 0;
+      for (const m of list) {
+        const { ok, alert } = await refreshOne(m.id);
+        if (!ok) errors++;
+        if (alert) found.push(alert);
+      }
+      return { alerts: found.length, errors, checked: list.length, found };
+    },
+    [refreshOne],
+  );
+
+  // Na abertura: notifica alertas simulados e busca preços reais vencidos (no máximo 1x por dia)
   useEffect(() => {
-    if (data.settings.notifications) notify(startup.current);
+    const initial = startup.current;
     startup.current = [];
-    // só na abertura
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let cancelled = false;
+    (async () => {
+      if (busy.current) return;
+      busy.current = true;
+      setRefreshing(true);
+      const { found } = await refreshReal(false);
+      busy.current = false;
+      if (cancelled) return;
+      setRefreshing(false);
+      if (dataRef.current.settings.notifications) notify([...initial, ...found]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshReal]);
+
+  const checkNow = useCallback(async (): Promise<CheckResult> => {
+    if (busy.current) return { alerts: 0, errors: 0, checked: 0 };
+    busy.current = true;
+    setRefreshing(true);
+    try {
+      const d = dataRef.current;
+      const caught = catchUp(d.monitors, d.settings.alertOnRise);
+      const rechecked = recheckToday(caught.monitors, d.settings.alertOnRise);
+      const simulated = [...caught.alerts, ...rechecked.alerts];
+      commit({ ...d, monitors: rechecked.monitors, alerts: [...[...simulated].reverse(), ...d.alerts] });
+
+      const real = await refreshReal(true);
+      const found = [...simulated, ...real.found];
+      if (dataRef.current.settings.notifications) notify(found);
+      return { alerts: found.length, errors: real.errors, checked: real.checked };
+    } finally {
+      busy.current = false;
+      setRefreshing(false);
+    }
+  }, [commit, refreshReal]);
+
+  const refreshMonitor = useCallback(
+    async (id: string) => {
+      setRefreshing(true);
+      try {
+        const { ok, alert } = await refreshOne(id);
+        if (alert && dataRef.current.settings.notifications) notify([alert]);
+        return ok;
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [refreshOne],
+  );
 
   const addMonitor = useCallback((m: NewMonitor) => {
     const id = uid();
@@ -98,12 +238,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       targetPrice: m.targetPrice,
       alertPct: m.alertPct,
       active: true,
-      sim: { base: m.currentPrice, vol: m.category === 'energia' || m.category === 'bancaria' ? 0.02 : 0.03, mode: m.category === 'energia' || m.category === 'bancaria' ? 'rare' : 'daily' },
+      source: m.source,
+      query: m.query,
+      insights: m.insights ?? null,
+      lastChecked: m.source === 'serpapi' ? new Date().toISOString() : null,
+      lastError: null,
       history: [{ date: today, value: m.currentPrice }],
       createdAt: today,
     };
     setData((d) => ({ ...d, monitors: [...d.monitors, monitor] }));
     return id;
+  }, []);
+
+  const recordPrice = useCallback((id: string, value: number) => {
+    setData((d) => {
+      const m = d.monitors.find((x) => x.id === id);
+      if (!m) return d;
+      const { monitor, alert } = withPrice(m, value, d.settings.alertOnRise);
+      return {
+        ...d,
+        monitors: d.monitors.map((x) => (x.id === id ? { ...monitor, lastChecked: new Date().toISOString() } : x)),
+        alerts: alert ? [alert, ...d.alerts] : d.alerts,
+      };
+    });
   }, []);
 
   const updateMonitor = useCallback((id: string, patch: Partial<Monitor>) => {
@@ -116,18 +273,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       monitors: d.monitors.filter((m) => m.id !== id),
       alerts: d.alerts.filter((a) => a.monitorId !== id),
     }));
-  }, []);
-
-  const checkNow = useCallback(() => {
-    const d = dataRef.current;
-    const caught = catchUp(d.monitors, d.settings.alertOnRise);
-    const rechecked = recheckToday(caught.monitors, d.settings.alertOnRise);
-    const found = [...caught.alerts, ...rechecked.alerts];
-    const next = { ...d, monitors: rechecked.monitors, alerts: [...[...found].reverse(), ...d.alerts] };
-    dataRef.current = next;
-    setData(next);
-    if (d.settings.notifications) notify(found);
-    return found.length;
   }, []);
 
   const markAlertRead = useCallback((id: string) => {
@@ -158,9 +303,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({
       ...data,
       unreadCount: data.alerts.filter((a) => !a.read).length,
+      refreshing,
       addMonitor,
       updateMonitor,
       deleteMonitor,
+      recordPrice,
+      refreshMonitor,
       checkNow,
       markAlertRead,
       markAllRead,
@@ -172,7 +320,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       resetDemo,
       clearAll,
     }),
-    [data, pendingPrompt, addMonitor, updateMonitor, deleteMonitor, checkNow, markAlertRead, markAllRead, clearAlerts, updateSettings, setChat, resetDemo, clearAll],
+    [data, refreshing, pendingPrompt, addMonitor, updateMonitor, deleteMonitor, recordPrice, refreshMonitor, checkNow, markAlertRead, markAllRead, clearAlerts, updateSettings, setChat, resetDemo, clearAll],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

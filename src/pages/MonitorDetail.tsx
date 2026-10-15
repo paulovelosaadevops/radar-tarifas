@@ -3,13 +3,128 @@ import { LineChart } from '../components/charts';
 import { Delta, EmptyState, RangeFilter } from '../components/common';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
-import { MonitorForm } from '../components/MonitorForm';
+import { EditMonitorForm } from '../components/MonitorForm';
+import { moneyInput, parseMoney } from '../components/fields';
 import { AlertItem } from './Alerts';
+import { querySummary } from '../data/describe';
 import { monitorStats, useRange } from '../data/stats';
 import { useStore } from '../data/store';
-import { CATEGORY_LABEL } from '../data/types';
+import { CATEGORY_LABEL, type Monitor } from '../data/types';
 import { brl, brlAxis } from '../lib/format';
 import { navigate } from '../lib/router';
+
+const LEVEL: Record<string, { label: string; tone: string }> = {
+  low: { label: 'Preço baixo', tone: 'good' },
+  typical: { label: 'Preço típico', tone: 'flat' },
+  high: { label: 'Preço alto', tone: 'bad' },
+};
+
+function fmtChecked(iso: string) {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? `hoje às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    : d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function SourcePanel({ m }: { m: Monitor }) {
+  const { refreshMonitor, recordPrice, refreshing } = useStore();
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const last = m.history[m.history.length - 1]?.value;
+
+  if (m.source === 'simulado') {
+    return (
+      <section className="card source-card">
+        <p className="card-sub">
+          <strong>Monitor de exemplo.</strong> Os preços são simulados para demonstração. Crie um monitor de passagem ou hospedagem para ver preços reais.
+        </p>
+      </section>
+    );
+  }
+
+  if (m.source === 'manual') {
+    const save = () => {
+      const v = parseMoney(value);
+      if (!(v > 0)) return setError('Informe um valor maior que zero.');
+      recordPrice(m.id, v);
+      setValue('');
+      setError('');
+    };
+    return (
+      <section className="card source-card">
+        <div>
+          <h2>Registrar valor</h2>
+          <p className="card-sub">Esta tarifa é atualizada por você. {m.lastChecked ? `Último registro ${fmtChecked(m.lastChecked)}.` : ''}</p>
+        </div>
+        <div className="record-row">
+          <div className="money-input">
+            <span>R$</span>
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && save()}
+              inputMode="decimal"
+              placeholder={last != null ? moneyInput(last) : '0,00'}
+              aria-label="Novo valor"
+            />
+            {m.unit && <span>{m.unit}</span>}
+          </div>
+          <button type="button" className="btn btn-primary" onClick={save}>
+            Registrar
+          </button>
+        </div>
+        {error && <p className="form-error">{error}</p>}
+      </section>
+    );
+  }
+
+  const level = m.insights?.priceLevel ? LEVEL[m.insights.priceLevel] : null;
+  return (
+    <section className="card source-card">
+      <div className="card-header">
+        <div>
+          <h2>{m.query?.kind === 'voo' ? 'Google Flights' : 'Google Hotels'}</h2>
+          <p className="card-sub">
+            {m.lastChecked ? `Atualizado ${fmtChecked(m.lastChecked)}` : 'Ainda não atualizado'} · busca automática 1 vez por dia
+          </p>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={() => refreshMonitor(m.id)} disabled={refreshing}>
+          <Icon name="refresh" size={16} className={refreshing ? 'spin' : undefined} /> Atualizar
+        </button>
+      </div>
+
+      {m.lastError && (
+        <p className="form-error" role="alert">
+          {m.lastError}
+        </p>
+      )}
+
+      {(level || m.insights?.typicalRange || m.insights?.best) && (
+        <div className="insights">
+          {level && <span className={`level level-${level.tone}`}>{level.label}</span>}
+          {m.insights?.typicalRange && (
+            <span className="card-sub">
+              Normalmente entre {brl(m.insights.typicalRange[0])} e {brl(m.insights.typicalRange[1])}
+            </span>
+          )}
+          {m.insights?.best && <span className="card-sub">Melhor opção: {m.insights.best}</span>}
+        </div>
+      )}
+
+      {m.query && (
+        <dl className="summary">
+          {querySummary(m.query).map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
+  );
+}
 
 export function MonitorDetail({ id }: { id: string }) {
   const { monitors, alerts, updateMonitor, deleteMonitor, setPendingPrompt } = useStore();
@@ -71,8 +186,10 @@ export function MonitorDetail({ id }: { id: string }) {
           <span className="price price-lg">{brl(s.current)}</span>
           {m.unit && <span className="unit">{m.unit}</span>}
         </div>
-        <Delta change={s.change} suffix={`em ${range} dias`} />
+        {s.points.length > 1 ? <Delta change={s.change} suffix={`em ${range} dias`} /> : <span className="delta delta-flat">Monitorando desde hoje</span>}
       </header>
+
+      <SourcePanel m={m} />
 
       <div className="filters">
         <RangeFilter value={range} onChange={setRange} />
@@ -124,7 +241,10 @@ export function MonitorDetail({ id }: { id: string }) {
             </table>
           </div>
         ) : s.points.length < 2 ? (
-          <p className="muted">O histórico começa hoje. O gráfico aparece a partir do segundo dia de monitoramento.</p>
+          <p className="muted">
+            O histórico começa hoje com {fmt(s.current)}. O gráfico aparece a partir do segundo dia de monitoramento
+            {m.source === 'serpapi' ? ': o app busca o preço de novo uma vez por dia, quando você abre.' : '.'}
+          </p>
         ) : (
           <LineChart
             series={[{ id: m.id, label: m.name, color: 'var(--series-1)', points: s.points }]}
@@ -173,11 +293,11 @@ export function MonitorDetail({ id }: { id: string }) {
 
       {editing && (
         <Modal title="Editar monitor" onClose={() => setEditing(false)}>
-          <MonitorForm
-            initial={m}
+          <EditMonitorForm
+            monitor={m}
             onCancel={() => setEditing(false)}
             onSubmit={(d) => {
-              updateMonitor(m.id, { name: d.name, category: d.category, detail: d.detail, unit: d.unit, targetPrice: d.targetPrice, alertPct: d.alertPct });
+              updateMonitor(m.id, d);
               setEditing(false);
             }}
           />

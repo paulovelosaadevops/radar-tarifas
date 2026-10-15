@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PageHeader } from '../components/common';
+import { fetchQuota, type Quota } from '../lib/prices';
 import { useStore } from '../data/store';
 import type { FreeModel, ThemePref } from '../data/types';
 
@@ -23,6 +24,14 @@ const notificationsSupported = () => typeof window !== 'undefined' && 'Notificat
 export function Settings() {
   const { settings, updateSettings, monitors, updateMonitor, resetDemo, clearAll } = useStore();
   const [permission, setPermission] = useState(() => (notificationsSupported() ? Notification.permission : 'denied'));
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchQuota()
+      .then(setQuota)
+      .catch((err) => setQuotaError(err instanceof Error ? err.message : 'Não foi possível consultar a cota.'));
+  }, []);
 
   const toggleNotifications = async (on: boolean) => {
     if (!on) return updateSettings({ notifications: false });
@@ -106,6 +115,28 @@ export function Settings() {
           </a>
           .
         </p>
+      </section>
+
+      <section className="card settings-group">
+        <h2>Preços reais (SerpApi)</h2>
+        {quota ? (
+          <>
+            <div className="setting-row">
+              <span>Buscas restantes este mês</span>
+              <strong>
+                {quota.left} de {quota.perMonth}
+              </strong>
+            </div>
+            <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={quota.perMonth} aria-valuenow={quota.left} aria-label="Buscas restantes">
+              <span style={{ width: `${Math.min(100, (quota.left / Math.max(1, quota.perMonth)) * 100)}%` }} className={quota.left < quota.perMonth * 0.15 ? 'is-low' : ''} />
+            </div>
+            <p className="card-sub">
+              Plano {quota.plan}. Cada monitor de passagem ou hospedagem faz 1 busca por dia, quando você abre o app. Buscas repetidas na mesma hora não contam.
+            </p>
+          </>
+        ) : (
+          <p className="card-sub">{quotaError ?? 'Consultando…'}</p>
+        )}
       </section>
 
       <section className="card settings-group">

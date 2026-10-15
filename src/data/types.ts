@@ -10,8 +10,51 @@ export const CATEGORY_LABEL: Record<Category, string> = {
 
 export type PricePoint = { date: string; value: number };
 
-/** Parâmetros da simulação de preços (enquanto não há fonte real de dados) */
+/** Parâmetros da simulação de preços (só para os monitores de exemplo) */
 export type SimParams = { base: number; vol: number; mode: 'daily' | 'rare' };
+
+export type TravelClass = 1 | 2 | 3 | 4;
+export type StopsFilter = 0 | 1 | 2 | 3;
+
+export type FlightQuery = {
+  origin: string;
+  destination: string;
+  tripType: 'ida-volta' | 'ida';
+  departDate: string;
+  returnDate?: string;
+  adults: number;
+  children: number;
+  infantsInSeat: number;
+  infantsOnLap: number;
+  travelClass: TravelClass;
+  stops: StopsFilter;
+  bags: number;
+};
+
+export type HotelQuery = {
+  location: string;
+  checkIn: string;
+  checkOut: string;
+  adults: number;
+  childrenAges: number[];
+  minRating?: 0 | 7 | 8 | 9;
+  hotelClass?: number[];
+  freeCancellation?: boolean;
+  /** Hospedagem específica escolhida na busca */
+  propertyToken?: string;
+  propertyName?: string;
+};
+
+export type MonitorQuery = ({ kind: 'voo' } & FlightQuery) | ({ kind: 'hotel' } & HotelQuery);
+
+/** serpapi = preço real buscado no Google; manual = o usuário registra; simulado = exemplo */
+export type MonitorSource = 'serpapi' | 'manual' | 'simulado';
+
+export type PriceInsights = {
+  priceLevel?: 'low' | 'typical' | 'high' | null;
+  typicalRange?: [number, number] | null;
+  best?: string | null;
+};
 
 export type Monitor = {
   id: string;
@@ -25,8 +68,13 @@ export type Monitor = {
   alertPct: number;
   active: boolean;
   history: PricePoint[];
-  sim: SimParams;
   createdAt: string;
+  source: MonitorSource;
+  query?: MonitorQuery;
+  insights?: PriceInsights | null;
+  lastChecked?: string | null;
+  lastError?: string | null;
+  sim?: SimParams;
 };
 
 export type AlertKind = 'alvo' | 'queda' | 'alta';

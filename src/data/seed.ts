@@ -45,6 +45,7 @@ export function createSeed(): AppData {
       targetPrice: s.targetPrice,
       alertPct: s.alertPct ?? 5,
       active: true,
+      source: 'simulado',
       sim: s.sim,
       history: buildHistory(s.id, s.sim, 120, today),
       createdAt,
