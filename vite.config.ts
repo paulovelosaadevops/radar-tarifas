@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -38,7 +39,10 @@ export default defineConfig(({ mode }) => {
   // Disponibiliza APINEX_* (de .env.local) só para o código do servidor
   Object.assign(process.env, loadEnv(mode, process.cwd(), 'APINEX_'));
 
+  const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+
   return {
+    define: { __APP_VERSION__: JSON.stringify(version) },
     plugins: [
       react(),
       devApi(),

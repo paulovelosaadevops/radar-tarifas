@@ -5,7 +5,7 @@ const DEFAULT_MODEL = 'free/deepseek-v4.1-flash';
 const DEFAULT_BASE_URL = 'https://api.apinex.bond/v1';
 
 const MAX_MESSAGES = 30;
-const MAX_TOTAL_CHARS = 20_000;
+const MAX_TOTAL_CHARS = 40_000;
 const DEFAULT_MAX_TOKENS = 1024;
 const MAX_MAX_TOKENS = 2048;
 
