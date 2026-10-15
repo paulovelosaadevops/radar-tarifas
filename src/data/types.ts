@@ -40,6 +40,10 @@ export type HotelQuery = {
   minRating?: 0 | 7 | 8 | 9;
   hotelClass?: number[];
   freeCancellation?: boolean;
+  /** Códigos de comodidades do Google Hotels (ver HOTEL_AMENITIES) */
+  amenities?: number[];
+  /** Códigos de tipos de hospedagem do Google Hotels (ver PROPERTY_TYPES) */
+  propertyTypes?: number[];
   /** Hospedagem específica escolhida na busca */
   propertyToken?: string;
   propertyName?: string;

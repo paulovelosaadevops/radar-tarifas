@@ -28,7 +28,8 @@ export type HotelOption = {
   thumbnail: string | null;
 };
 
-export type HotelResult = { price: number; perNight: number | null; options: HotelOption[] };
+/** partial = nenhum hotel atende a todos os filtros; as opções são as mais próximas */
+export type HotelResult = { price: number; perNight: number | null; options: HotelOption[]; partial?: boolean };
 
 export type Quota = { plan: string; perMonth: number; left: number; used: number };
 

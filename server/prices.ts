@@ -31,12 +31,25 @@ function text(value: unknown, name: string, max = 120): string {
   return value.trim().slice(0, max);
 }
 
-async function serpapi(params: Record<string, string | number | undefined>) {
+// Códigos aceitos pelo Google Hotels (serpapi.com/google-hotels-amenities e /google-hotels-property-types)
+const AMENITY_IDS = new Set([1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 19, 22, 35, 40, 52, 53, 61]);
+const PROPERTY_TYPE_IDS = new Set([12, 13, 14, 15, 16, 17, 18, 19, 21]);
+
+function idList(value: unknown, allowed: Set<number>, name: string): number[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > allowed.size) throw new BadRequest(`Lista de ${name} inválida.`);
+  const ids = value.map(Number);
+  const bad = ids.find((id) => !allowed.has(id));
+  if (bad !== undefined) throw new BadRequest(`Código de ${name} desconhecido: ${bad}.`);
+  return [...new Set(ids)];
+}
+
+async function serpapi(params: Record<string, string | number | undefined>, locale = { hl: 'pt-br', gl: 'br' }) {
   const apiKey = process.env.SERPAPI_API_KEY;
   if (!apiKey) throw new Error('SERPAPI_API_KEY não configurada no servidor.');
 
   const url = new URL(SERPAPI_URL);
-  for (const [k, v] of Object.entries({ ...params, currency: 'BRL', hl: 'pt-br', gl: 'br' })) {
+  for (const [k, v] of Object.entries({ ...params, currency: 'BRL', ...locale })) {
     if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
   }
   url.searchParams.set('api_key', apiKey);
@@ -115,6 +128,26 @@ async function searchFlights(q: any) {
   });
 }
 
+const NEARBY_KM = 60;
+
+function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad;
+  const dLon = (b.longitude - a.longitude) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLon / 2) ** 2;
+  return 12_742 * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * O Google mistura hotéis de toda a região (ex.: Sauípe e Porto Seguro, a 700 km).
+ * O primeiro resultado é o mais relevante para o destino: mantém só o que fica perto dele.
+ */
+function nearFirst(properties: any[]): any[] {
+  const anchor = properties.find((p) => p.gps_coordinates?.latitude != null)?.gps_coordinates;
+  if (!anchor) return properties;
+  return properties.filter((p) => !p.gps_coordinates || distanceKm(anchor, p.gps_coordinates) <= NEARBY_KM);
+}
+
 async function searchHotels(q: any) {
   const location = text(q?.location, 'destino');
   const checkIn = date(q?.checkIn, 'check-in');
@@ -127,6 +160,8 @@ async function searchHotels(q: any) {
 
   const rating = q?.minRating ? int(q.minRating, 'avaliação mínima', 7, 9) : undefined;
   const classes: number[] = Array.isArray(q?.hotelClass) ? q.hotelClass.map((c: unknown) => int(c, 'estrelas', 2, 5)) : [];
+  const amenities = idList(q?.amenities, AMENITY_IDS, 'comodidade');
+  const propertyTypes = idList(q?.propertyTypes, PROPERTY_TYPE_IDS, 'tipo de hospedagem');
   const propertyToken = typeof q?.propertyToken === 'string' && /^[\w-]{10,400}$/.test(q.propertyToken) ? q.propertyToken : undefined;
 
   const { empty, data } = await serpapi({
@@ -138,12 +173,18 @@ async function searchHotels(q: any) {
     children: childrenAges.length,
     // A API não aceita idade 0: bebês contam como 1 ano
     children_ages: childrenAges.length ? childrenAges.map((a) => Math.max(1, a)).join(',') : undefined,
-    sort_by: propertyToken ? undefined : 3,
+    // Sem sort_by: ordenar por preço no Google amplia a região (ex.: Sauípe → Porto Seguro). Ordenamos aqui.
     rating,
     hotel_class: classes.length ? classes.join(',') : undefined,
     free_cancellation: q?.freeCancellation ? 'true' : undefined,
+    amenities: amenities.length ? amenities.join(',') : undefined,
+    property_types: propertyTypes.length ? propertyTypes.join(',') : undefined,
     property_token: propertyToken,
-  });
+  },
+    // O Google Hotels só aplica filtros de comodidade/tipo (ex.: all inclusive) em buscas em inglês.
+    // Preços continuam em BRL; nomes de hotéis não mudam.
+    amenities.length || propertyTypes.length ? { hl: 'en', gl: 'us' } : undefined,
+  );
 
   const toOption = (p: any) => ({
     token: p.property_token ?? propertyToken ?? null,
@@ -156,11 +197,16 @@ async function searchHotels(q: any) {
     thumbnail: p.images?.[0]?.thumbnail ?? null,
   });
 
+  // Sem nenhum hotel que atenda a todos os filtros, o Google devolve "non_matching_properties" (os mais próximos)
+  const exact: any[] = data?.properties ?? [];
+  const partial = !propertyToken && exact.length === 0 && (data?.non_matching_properties?.length ?? 0) > 0;
+  const list: any[] = nearFirst(partial ? data.non_matching_properties : exact);
+
   const options = empty
     ? []
     : propertyToken
       ? [toOption(data)].filter((o) => typeof o.total === 'number')
-      : (data.properties ?? [])
+      : list
           .map(toOption)
           .filter((o: any) => typeof o.total === 'number')
           .sort((a: any, b: any) => a.total - b.total)
@@ -173,7 +219,7 @@ async function searchHotels(q: any) {
         : 'Nenhuma hospedagem com preço encontrada. Tente outro destino, datas ou menos filtros.',
     });
   }
-  return json(200, { price: options[0].total, perNight: options[0].perNight, options });
+  return json(200, { price: options[0].total, perNight: options[0].perNight, options, partial });
 }
 
 export async function POST(request: Request): Promise<Response> {

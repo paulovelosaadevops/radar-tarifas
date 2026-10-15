@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { AIRPORTS, airportLabel, cityOf, findAirport, parseAirport } from '../data/airports';
-import { flightDetail, flightName, flightPassengers, hotelDetail, hotelGuests, hotelName, nights, TRAVEL_CLASS_LABEL } from '../data/describe';
+import {
+  flightDetail,
+  flightName,
+  flightPassengers,
+  HOTEL_AMENITIES,
+  hotelDetail,
+  hotelGuests,
+  hotelName,
+  nights,
+  PROPERTY_TYPES,
+  TRAVEL_CLASS_LABEL,
+} from '../data/describe';
 import type { NewMonitor as NewMonitorData } from '../data/store';
 import type { Category, FlightQuery, HotelQuery, StopsFilter, TravelClass } from '../data/types';
 import { addDays, todayISO } from '../lib/dates';
 import { brl } from '../lib/format';
 import { searchFlights, searchHotels, type FlightResult, type HotelResult } from '../lib/prices';
-import { ChoiceChips, DateField, moneyInput, parseMoney, Section, Stepper, Switch } from './fields';
+import { ChoiceChips, DateField, moneyInput, MultiChips, parseMoney, Section, Stepper, Switch } from './fields';
 import { Icon, type IconName } from './Icon';
 
 type Kind = 'voo' | 'hotel' | 'manual';
@@ -426,6 +437,8 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
   const [minRating, setMinRating] = useState<0 | 7 | 8 | 9>(0);
   const [hotelClass, setHotelClass] = useState<number[]>([]);
   const [freeCancellation, setFreeCancellation] = useState(false);
+  const [amenities, setAmenities] = useState<number[]>([]);
+  const [propertyTypes, setPropertyTypes] = useState<number[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -433,7 +446,8 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
   const [selected, setSelected] = useState<string>(CHEAPEST);
   const [tracking, setTracking] = useState<Tracking>({ name: '', target: '', alertPct: 5 });
 
-  const query: HotelQuery = { location: location.trim(), checkIn, checkOut, adults, childrenAges, minRating, hotelClass, freeCancellation };
+  const query: HotelQuery = { location: location.trim(), checkIn, checkOut, adults, childrenAges, minRating, hotelClass, freeCancellation, amenities, propertyTypes };
+  const filterCount = (minRating ? 1 : 0) + hotelClass.length + amenities.length + propertyTypes.length + (freeCancellation ? 1 : 0);
   const queryKey = JSON.stringify(query);
   useEffect(() => {
     setResult(null);
@@ -534,7 +548,12 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
         )}
       </Section>
 
-      <Section icon="star" title="Filtros">
+      <Section icon="sparkle" title="O que não pode faltar" aside={amenities.length ? `${amenities.length} ${amenities.length === 1 ? 'item' : 'itens'}` : undefined}>
+        <MultiChips label="Comodidades" options={HOTEL_AMENITIES.map((a) => ({ value: a.id, label: a.label }))} value={amenities} onChange={setAmenities} visible={8} />
+        <MultiChips label="Tipo de hospedagem" options={PROPERTY_TYPES.map((t) => ({ value: t.id, label: t.label }))} value={propertyTypes} onChange={setPropertyTypes} visible={6} />
+      </Section>
+
+      <Section icon="star" title="Filtros" aside={filterCount > 3 ? 'Muitos filtros podem zerar os resultados' : undefined}>
         <ChoiceChips
           label="Avaliação dos hóspedes"
           value={minRating}
@@ -570,6 +589,15 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
       {result && (
         <>
           <Section icon="target" title="O que acompanhar">
+            {result.partial && (
+              <p className="notice" role="status">
+                <Icon name="search" size={16} />
+                <span>
+                  Nenhuma hospedagem atende a <strong>todos</strong> os filtros nessas datas. Estas são as mais próximas que o Google encontrou. Para acompanhar só as que
+                  atendem, volte e tire algum filtro.
+                </span>
+              </p>
+            )}
             <div className="hotel-options" role="radiogroup" aria-label="Hospedagem a acompanhar">
               <label className={`hotel-option${selected === CHEAPEST ? ' is-on' : ''}`}>
                 <input type="radio" name="hotel" checked={selected === CHEAPEST} onChange={() => pick(CHEAPEST)} />

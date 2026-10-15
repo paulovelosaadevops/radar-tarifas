@@ -621,3 +621,42 @@
 .meter span.is-low {
   background: var(--warning);
 }
+
+/* ---------- Comodidades ---------- */
+.field > span:has(.link-btn) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--focus);
+}
+
+.choice-chip-more {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.notice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.notice svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--warning);
+}

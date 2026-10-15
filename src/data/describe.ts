@@ -14,6 +14,45 @@ export const STOPS_LABEL = ['Qualquer número de paradas', 'Somente voo direto',
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** Comodidades aceitas pelo Google Hotels (código → rótulo). As primeiras aparecem sem precisar expandir. */
+export const HOTEL_AMENITIES: { id: number; label: string; short: string }[] = [
+  { id: 9, label: 'Café da manhã grátis', short: 'café incluso' },
+  { id: 52, label: 'All inclusive', short: 'all inclusive' },
+  { id: 6, label: 'Piscina', short: 'piscina' },
+  { id: 11, label: 'Acesso à praia', short: 'pé na areia' },
+  { id: 35, label: 'Wi-Fi grátis', short: 'Wi-Fi' },
+  { id: 40, label: 'Ar-condicionado', short: 'ar-condicionado' },
+  { id: 1, label: 'Estacionamento grátis', short: 'estacionamento grátis' },
+  { id: 19, label: 'Aceita pets', short: 'aceita pets' },
+  { id: 12, label: 'Bom para crianças', short: 'bom para crianças' },
+  { id: 3, label: 'Estacionamento', short: 'estacionamento' },
+  { id: 5, label: 'Piscina externa', short: 'piscina externa' },
+  { id: 4, label: 'Piscina coberta', short: 'piscina coberta' },
+  { id: 8, label: 'Restaurante', short: 'restaurante' },
+  { id: 15, label: 'Bar', short: 'bar' },
+  { id: 10, label: 'Spa', short: 'spa' },
+  { id: 7, label: 'Academia', short: 'academia' },
+  { id: 22, label: 'Serviço de quarto', short: 'serviço de quarto' },
+  { id: 53, label: 'Acessível para cadeira de rodas', short: 'acessível' },
+  { id: 61, label: 'Carregador de carro elétrico', short: 'carregador elétrico' },
+];
+
+export const PROPERTY_TYPES: { id: number; label: string }[] = [
+  { id: 17, label: 'Resort' },
+  { id: 12, label: 'Hotel de praia' },
+  { id: 15, label: 'Pousada' },
+  { id: 13, label: 'Boutique' },
+  { id: 19, label: 'Cama e café' },
+  { id: 21, label: 'Apart-hotel' },
+  { id: 18, label: 'Hotel com spa' },
+  { id: 14, label: 'Hostel' },
+  { id: 16, label: 'Motel' },
+];
+
+const amenityShort = (ids: number[] = []) => ids.map((id) => HOTEL_AMENITIES.find((a) => a.id === id)?.short).filter(Boolean) as string[];
+const amenityLabels = (ids: number[] = []) => ids.map((id) => HOTEL_AMENITIES.find((a) => a.id === id)?.label).filter(Boolean) as string[];
+const typeLabels = (ids: number[] = []) => ids.map((id) => PROPERTY_TYPES.find((t) => t.id === id)?.label).filter(Boolean) as string[];
+
 export function flightPassengers(q: Pick<FlightQuery, 'adults' | 'children' | 'infantsInSeat' | 'infantsOnLap'>): string {
   const babies = q.infantsInSeat + q.infantsOnLap;
   return [
@@ -62,6 +101,8 @@ export function hotelDetail(q: HotelQuery) {
     plural(n, 'noite', 'noites'),
     `${fmtShortDate(q.checkIn)} – ${fmtShortDate(q.checkOut)}`,
     hotelGuests(q),
+    // Só as comodidades mais marcantes, para o card não ficar enorme
+    ...amenityShort(q.amenities?.filter((id) => id === 9 || id === 52)),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -90,6 +131,8 @@ export function querySummary(q: MonitorQuery): { label: string; value: string }[
     },
     ...(q.minRating ? [{ label: 'Avaliação mínima', value: { 7: '3,5+', 8: '4,0+', 9: '4,5+' }[q.minRating] }] : []),
     ...(q.hotelClass?.length ? [{ label: 'Estrelas', value: q.hotelClass.join(', ') }] : []),
+    ...(q.propertyTypes?.length ? [{ label: 'Tipo', value: typeLabels(q.propertyTypes).join(', ') }] : []),
+    ...(q.amenities?.length ? [{ label: 'Comodidades', value: amenityLabels(q.amenities).join(', ') }] : []),
     ...(q.freeCancellation ? [{ label: 'Cancelamento', value: 'Somente com cancelamento grátis' }] : []),
   ];
 }
