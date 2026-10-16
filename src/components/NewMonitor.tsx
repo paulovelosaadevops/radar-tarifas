@@ -457,7 +457,7 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
     if (checkOut <= checkIn) setCheckOut(addDays(checkIn, 1));
   }, [checkIn, checkOut]);
 
-  const setChildren = (n: number) => setChildrenAges((ages) => (n > ages.length ? [...ages, ...Array(n - ages.length).fill(8)] : ages.slice(0, n)));
+  const setChildren = (n: number) => setChildrenAges((ages) => (n > ages.length ? [...ages, ...Array(n - ages.length).fill(-1)] : ages.slice(0, n)));
   const toggleClass = (c: number) => setHotelClass((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c].sort()));
 
   const option = result?.options.find((o) => o.token === selected);
@@ -465,6 +465,7 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
 
   const search = async () => {
     if (!query.location) return setError('Informe o destino: cidade, bairro ou nome do hotel.');
+    if (childrenAges.some((a) => a < 0)) return setError('Escolha a idade de cada criança: ela muda o preço da hospedagem.');
     if (checkIn < today) return setError('O check-in já passou.');
     if (checkOut <= checkIn) return setError('O check-out precisa ser depois do check-in.');
     setError(null);
@@ -535,6 +536,9 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
               <label key={i} className="field">
                 <span>Idade da criança {i + 1}</span>
                 <select value={age} onChange={(e) => setChildrenAges((a) => a.map((x, j) => (j === i ? Number(e.target.value) : x)))}>
+                  <option value={-1} disabled>
+                    Escolha
+                  </option>
                   <option value={0}>Menos de 1 ano</option>
                   {Array.from({ length: 17 }, (_, k) => k + 1).map((v) => (
                     <option key={v} value={v}>

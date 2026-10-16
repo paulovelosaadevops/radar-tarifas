@@ -64,6 +64,19 @@ export type PriceInsights = {
   bookingUrl?: string | null;
   /** Site oficial do hotel acompanhado */
   siteUrl?: string | null;
+  /** Diária (hospedagem) */
+  perNight?: number | null;
+  /** Preço em cada site de reserva, segundo o Google (só para hotel específico) */
+  sources?: BookingSource[];
+};
+
+export type BookingSource = {
+  source: string;
+  total: number;
+  perNight: number | null;
+  room: string | null;
+  official: boolean;
+  link: string | null;
 };
 
 export type Monitor = {

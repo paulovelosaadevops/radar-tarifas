@@ -1,4 +1,4 @@
-import type { FlightQuery, HotelQuery, Monitor, PriceInsights } from '../data/types';
+import type { BookingSource, FlightQuery, HotelQuery, Monitor, PriceInsights } from '../data/types';
 
 export type FlightOption = {
   price: number;
@@ -31,7 +31,14 @@ export type HotelOption = {
 };
 
 /** partial = nenhum hotel atende a todos os filtros; as opções são as mais próximas */
-export type HotelResult = { price: number; perNight: number | null; options: HotelOption[]; partial?: boolean; googleUrl: string | null };
+export type HotelResult = {
+  price: number;
+  perNight: number | null;
+  options: HotelOption[];
+  partial?: boolean;
+  googleUrl: string | null;
+  sources?: BookingSource[];
+};
 
 export function flightInsights(r: FlightResult): PriceInsights {
   const best = r.options[0];
@@ -50,6 +57,8 @@ export function hotelInsights(r: HotelResult, tracked?: HotelOption | null): Pri
     best: tracked ? null : option?.name ?? null,
     bookingUrl: r.googleUrl,
     siteUrl: option?.link ?? null,
+    perNight: option?.perNight ?? r.perNight ?? null,
+    sources: r.sources ?? [],
   };
 }
 

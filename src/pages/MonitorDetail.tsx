@@ -6,7 +6,7 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { EditMonitorForm } from '../components/MonitorForm';
 import { airlineSite } from '../data/airlines';
-import { querySummary } from '../data/describe';
+import { nights, querySummary } from '../data/describe';
 import { monitorStats, useRange } from '../data/stats';
 import { useStore } from '../data/store';
 import { CATEGORY_LABEL, type Monitor } from '../data/types';
@@ -113,7 +113,42 @@ function PriceGroup({ m }: { m: Monitor }) {
   }
 
   const level = m.insights?.priceLevel ? LEVEL[m.insights.priceLevel] : null;
+  const hotel = m.query?.kind === 'hotel' ? m.query : null;
+  const sources = m.insights?.sources ?? [];
+  const mealFilter = hotel?.amenities?.some((id) => id === 52 || id === 9);
+
   return (
+    <>
+    {hotel && (
+      <Group
+        header="Preço por site"
+        footer={
+          <>
+            {sources.length > 0
+              ? 'Total da estadia com taxas, segundo o Google Hotels. '
+              : hotel.propertyToken
+                ? 'Toque em "Atualizar agora" para ver o preço de cada site. '
+                : 'Este monitor acompanha a hospedagem mais barata do destino; para ver o preço por site, crie um monitor escolhendo um hotel específico. '}
+            Sites que o Google não lista para essa busca (como alguns sites de reserva direta) não entram na comparação e podem ter outros valores.
+            {mealFilter && ' O filtro de café da manhã ou all inclusive garante que o hotel oferece a opção, mas o preço é o do quarto mais barato, que pode não incluir refeições.'}
+          </>
+        }
+      >
+        {sources.length > 0 ? (
+          sources.map((src) => (
+            <Row
+              key={src.source}
+              title={src.official ? `${src.source} (site oficial)` : src.source}
+              subtitle={[src.room, src.perNight ? `${brl(src.perNight)}/noite` : null].filter(Boolean).join(' · ') || undefined}
+              value={brl(src.total)}
+              href={src.link ?? undefined}
+            />
+          ))
+        ) : (
+          <Row icon="info" tone="gray" title={m.insights?.perNight ? `${brl(m.insights.perNight)} por noite` : 'Menor preço no Google Hotels'} value={brl(m.history[m.history.length - 1]?.value ?? 0)} />
+        )}
+      </Group>
+    )}
     <Group header={m.query?.kind === 'voo' ? 'Google Flights' : 'Google Hotels'} footer={m.lastError ? <span className="text-bad">{m.lastError}</span> : 'O app busca o preço de novo uma vez por dia, quando você abre.'}>
       {level && <Row icon="chart" tone={level.tone === 'good' ? 'green' : level.tone === 'bad' ? 'red' : 'gray'} title="Preço atual" value={level.label} />}
       {m.insights?.typicalRange && <Row icon="target" tone="orange" title="Normalmente" value={`${brlAxis(m.insights.typicalRange[0])} – ${brlAxis(m.insights.typicalRange[1])}`} />}
@@ -128,6 +163,7 @@ function PriceGroup({ m }: { m: Monitor }) {
         disabled={refreshing}
       />
     </Group>
+    </>
   );
 }
 
@@ -189,6 +225,12 @@ export function MonitorDetail({ id }: { id: string }) {
             <span className="price-hero">{brl(s.current)}</span>
             {m.unit && <span className="unit">{m.unit}</span>}
           </div>
+          {m.query?.kind === 'hotel' && (
+            <span className="detail-sub">
+              Total de {nights(m.query)} {nights(m.query) === 1 ? 'noite' : 'noites'}
+              {m.insights?.perNight ? ` · ${brl(m.insights.perNight)} por noite` : ''}
+            </span>
+          )}
           {isNew ? <span className="delta delta-flat">Monitorando desde hoje</span> : <Delta change={s.change} suffix={rangeText(range)} />}
         </header>
       </CompactHeader>

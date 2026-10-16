@@ -130,6 +130,22 @@ async function searchFlights(q: any) {
   });
 }
 
+function hotelSources(data: any) {
+  const seen = new Set<string>();
+  return [...(data?.featured_prices ?? []), ...(data?.prices ?? [])]
+    .filter((p: any) => typeof p?.total_rate?.extracted_lowest === 'number' && p.source && !seen.has(p.source) && seen.add(p.source))
+    .map((p: any) => ({
+      source: String(p.source),
+      total: p.total_rate.extracted_lowest as number,
+      perNight: (p.rate_per_night?.extracted_lowest as number | undefined) ?? null,
+      room: p.rooms?.[0]?.name ?? null,
+      official: !!p.official,
+      link: typeof p.link === 'string' && /^https:\/\//.test(p.link) ? p.link : null,
+    }))
+    .sort((a, b) => a.total - b.total)
+    .slice(0, 8);
+}
+
 const NEARBY_KM = 60;
 
 function googleHotelsUrl(q: string, checkIn: string, checkOut: string, adults: number) {
@@ -234,11 +250,15 @@ async function searchHotels(q: any) {
         : 'Nenhuma hospedagem com preço encontrada. Tente outro destino, datas ou menos filtros.',
     });
   }
+  // No detalhe de um hotel, o Google lista o preço de cada site de reserva (Booking, Hotels.com, site oficial...)
+  const sources = propertyToken ? hotelSources(data) : [];
+
   return json(200, {
     price: options[0].total,
     perNight: options[0].perNight,
     options,
     partial,
+    sources,
     googleUrl: googleHotelsUrl(propertyToken ? `${options[0].name} ${location}` : location, checkIn, checkOut, adults),
   });
 }
