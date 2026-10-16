@@ -1,23 +1,24 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { AIRPORTS, airportLabel, cityOf, findAirport, parseAirport } from '../data/airports';
 import {
+  BOARD_CHOICES,
+  boardLabel,
+  COUNTRIES,
   flightDetail,
   flightName,
   flightPassengers,
-  HOTEL_AMENITIES,
-  hotelDetail,
-  hotelGuests,
-  hotelName,
+  lodgingDetail,
+  lodgingGuests,
+  lodgingName,
   nights,
-  PROPERTY_TYPES,
   TRAVEL_CLASS_LABEL,
 } from '../data/describe';
 import type { NewMonitor as NewMonitorData } from '../data/store';
-import type { Category, FlightQuery, HotelQuery, StopsFilter, TravelClass } from '../data/types';
+import type { BoardCode, Category, FlightQuery, LodgingQuery, StopsFilter, TravelClass } from '../data/types';
 import { addDays, todayISO } from '../lib/dates';
 import { brl } from '../lib/format';
-import { flightInsights, hotelInsights, searchFlights, searchHotels, type FlightResult, type HotelResult } from '../lib/prices';
-import { ChoiceChips, DateField, moneyInput, MultiChips, parseMoney, Section, Stepper, Switch } from './fields';
+import { flightInsights, lodgingInsights, lodgingLinks, searchFlights, searchLodging, type FlightResult, type LodgingResult } from '../lib/prices';
+import { ChoiceChips, DateField, moneyInput, parseMoney, Section, Stepper, Switch } from './fields';
 import { Icon, type IconName } from './Icon';
 
 type Kind = 'voo' | 'hotel' | 'manual';
@@ -28,7 +29,7 @@ export function NewMonitor({ onCreate, onCancel }: Props) {
   if (!kind) return <TypePicker onPick={setKind} />;
   const back = () => setKind(null);
   if (kind === 'voo') return <FlightForm onBack={back} onCreate={onCreate} onCancel={onCancel} />;
-  if (kind === 'hotel') return <HotelForm onBack={back} onCreate={onCreate} onCancel={onCancel} />;
+  if (kind === 'hotel') return <LodgingForm onBack={back} onCreate={onCreate} onCancel={onCancel} />;
   return <ManualForm onBack={back} onCreate={onCreate} onCancel={onCancel} />;
 }
 
@@ -36,7 +37,7 @@ export function NewMonitor({ onCreate, onCancel }: Props) {
 
 const TYPES: { kind: Kind; icon: IconName; tone: string; title: string; text: string; live?: boolean }[] = [
   { kind: 'voo', icon: 'plane', tone: 'blue', title: 'Passagem aérea', text: 'Preço real do Google Flights, atualizado todo dia', live: true },
-  { kind: 'hotel', icon: 'bed', tone: 'indigo', title: 'Hospedagem', text: 'Hotéis e pousadas pelo Google Hotels', live: true },
+  { kind: 'hotel', icon: 'bed', tone: 'indigo', title: 'Hospedagem', text: 'Hotéis e resorts com regime: café, meia pensão ou all inclusive', live: true },
   { kind: 'manual', icon: 'bolt', tone: 'orange', title: 'Outra tarifa', text: 'Energia, tarifa bancária ou outro valor que você registra' },
 ];
 
@@ -423,44 +424,39 @@ function AirportField({ label, value, onChange }: { label: string; value: string
   );
 }
 
-/* ---------- Hospedagem ---------- */
+/* ---------- Hospedagem (LiteAPI: tarifas com regime) ---------- */
 
 const CHEAPEST = '__cheapest__';
 
-function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void }) {
+function LodgingForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void }) {
   const today = todayISO();
-  const [location, setLocation] = useState('');
+  const [cityName, setCityName] = useState('');
+  const [countryCode, setCountryCode] = useState('BR');
   const [checkIn, setCheckIn] = useState(addDays(today, 30));
   const [checkOut, setCheckOut] = useState(addDays(today, 33));
   const [adults, setAdults] = useState(2);
   const [childrenAges, setChildrenAges] = useState<number[]>([]);
-  const [childrenFree, setChildrenFree] = useState(true);
-  const [minRating, setMinRating] = useState<0 | 7 | 8 | 9>(0);
-  const [hotelClass, setHotelClass] = useState<number[]>([]);
-  const [freeCancellation, setFreeCancellation] = useState(false);
-  const [amenities, setAmenities] = useState<number[]>([]);
-  const [propertyTypes, setPropertyTypes] = useState<number[]>([]);
+  const [board, setBoard] = useState<BoardCode | 'any'>('any');
+  const [stars, setStars] = useState<number[]>([]);
+  const [refundableOnly, setRefundableOnly] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<HotelResult | null>(null);
+  const [result, setResult] = useState<LodgingResult | null>(null);
   const [selected, setSelected] = useState<string>(CHEAPEST);
   const [tracking, setTracking] = useState<Tracking>({ name: '', target: '', alertPct: 5 });
 
-  const query: HotelQuery = {
-    location: location.trim(),
+  const query: LodgingQuery = {
+    cityName: cityName.trim(),
+    countryCode,
     checkIn,
     checkOut,
     adults,
     childrenAges,
-    childrenFree: childrenAges.length > 0 ? childrenFree : undefined,
-    minRating,
-    hotelClass,
-    freeCancellation,
-    amenities,
-    propertyTypes,
+    board,
+    stars,
+    refundableOnly,
   };
-  const filterCount = (minRating ? 1 : 0) + hotelClass.length + amenities.length + propertyTypes.length + (freeCancellation ? 1 : 0);
   const queryKey = JSON.stringify(query);
   useEffect(() => {
     setResult(null);
@@ -471,22 +467,23 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
   }, [checkIn, checkOut]);
 
   const setChildren = (n: number) => setChildrenAges((ages) => (n > ages.length ? [...ages, ...Array(n - ages.length).fill(-1)] : ages.slice(0, n)));
-  const toggleClass = (c: number) => setHotelClass((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c].sort()));
+  const toggleStar = (s: number) => setStars((list) => (list.includes(s) ? list.filter((x) => x !== s) : [...list, s].sort()));
 
-  const option = result?.options.find((o) => o.token === selected);
+  const option = result?.options.find((o) => o.hotelId === selected) ?? null;
   const price = option?.total ?? result?.price ?? null;
+  const n = nights(query);
 
   const search = async () => {
-    if (!query.location) return setError('Informe o destino: cidade, bairro ou nome do hotel.');
+    if (!query.cityName) return setError('Informe a cidade.');
     if (childrenAges.some((a) => a < 0)) return setError('Escolha a idade de cada criança: ela muda o preço da hospedagem.');
     if (checkIn < today) return setError('O check-in já passou.');
     if (checkOut <= checkIn) return setError('O check-out precisa ser depois do check-in.');
     setError(null);
     setLoading(true);
     try {
-      const r = await searchHotels(query);
+      const r = await searchLodging(query);
       setResult(r);
-      setTracking((t) => ({ ...t, name: t.name || hotelName(query) }));
+      setTracking((t) => ({ ...t, name: t.name || lodgingName(query) }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha na busca.');
     } finally {
@@ -494,10 +491,10 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
     }
   };
 
-  const pick = (token: string) => {
-    setSelected(token);
-    const o = result?.options.find((x) => x.token === token);
-    setTracking((t) => ({ ...t, name: o ? o.name : hotelName(query) }));
+  const pick = (id: string) => {
+    setSelected(id);
+    const o = result?.options.find((x) => x.hotelId === id);
+    setTracking((t) => ({ ...t, name: o ? o.name : lodgingName(query) }));
   };
 
   const submit = (e: FormEvent) => {
@@ -505,32 +502,42 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
     if (!result || price == null) return search();
     const problem = trackingError(tracking);
     if (problem) return setError(problem);
-    const finalQuery: HotelQuery = option?.token ? { ...query, propertyToken: option.token, propertyName: option.name } : query;
+    const finalQuery: LodgingQuery = option ? { ...query, hotelId: option.hotelId, hotelName: option.name } : query;
     onCreate({
       name: tracking.name.trim(),
       category: 'hotel',
-      detail: hotelDetail(finalQuery),
+      detail: lodgingDetail(finalQuery),
       unit: '',
       targetPrice: targetValue(tracking),
       alertPct: tracking.alertPct,
       currentPrice: price,
-      source: 'serpapi',
-      query: { kind: 'hotel', ...finalQuery },
-      insights: hotelInsights(result, option ?? null),
+      source: 'liteapi',
+      query: { kind: 'hospedagem', ...finalQuery },
+      insights: { ...lodgingInsights(result, option), bookingUrl: lodgingLinks(finalQuery).google },
     });
   };
-
-  const n = nights(query);
 
   return (
     <form className="form" onSubmit={submit} noValidate>
       <StepHeader icon="bed" title="Hospedagem" onBack={onBack} />
 
       <Section icon="pin" title="Destino">
-        <label className="field">
-          <span>Cidade, bairro ou nome do hotel</span>
-          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ex.: Copacabana, Rio de Janeiro" maxLength={120} />
-        </label>
+        <div className="field-row field-row-city">
+          <label className="field">
+            <span>Cidade</span>
+            <input value={cityName} onChange={(e) => setCityName(e.target.value)} placeholder="Ex.: Natal" maxLength={80} />
+          </label>
+          <label className="field">
+            <span>País</span>
+            <select value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </Section>
 
       <Section icon="calendar" title="Datas" aside={n > 0 ? `${n} ${n === 1 ? 'noite' : 'noites'}` : undefined}>
@@ -540,7 +547,7 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
         </div>
       </Section>
 
-      <Section icon="users" title="Hóspedes" aside={hotelGuests(query)}>
+      <Section icon="users" title="Hóspedes" aside={lodgingGuests(query)}>
         <Stepper label="Adultos" hint="18 anos ou mais" value={adults} min={1} max={12} onChange={setAdults} />
         <Stepper label="Crianças" hint="0 a 17 anos" value={childrenAges.length} min={0} max={8} onChange={setChildren} />
         {childrenAges.length > 0 && (
@@ -563,77 +570,48 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
             ))}
           </div>
         )}
-        {childrenAges.length > 0 && (
-          <Switch
-            label="Crianças não pagam"
-            hint={
-              childrenFree
-                ? 'O preço considera só os adultos, como em muitos resorts. Desligue se o hotel cobra pelas crianças.'
-                : 'O Google cobra cada criança como um adulto. Ligue se o hotel não cobra crianças.'
-            }
-            checked={childrenFree}
-            onChange={setChildrenFree}
-          />
-        )}
+        {childrenAges.length > 0 && <p className="card-sub">O hotel calcula o preço pela idade de cada criança: quando elas não pagam, o valor já vem sem cobrança.</p>}
       </Section>
 
-      <Section icon="sparkle" title="O que não pode faltar" aside={amenities.length ? `${amenities.length} ${amenities.length === 1 ? 'item' : 'itens'}` : undefined}>
-        <MultiChips label="Comodidades" options={HOTEL_AMENITIES.map((a) => ({ value: a.id, label: a.label }))} value={amenities} onChange={setAmenities} visible={8} />
-        {amenities.includes(52) && (
-          <p className="notice" role="note">
-            <Icon name="info" size={16} />
-            <span>
-              Este filtro mostra só hotéis que <strong>oferecem</strong> all inclusive, mas o Google não informa o regime das tarifas: o preço será o da tarifa
-              mais barata, que costuma ser só hospedagem ou com café. Confira o valor all inclusive no site do hotel.
-            </span>
-          </p>
-        )}
-        <MultiChips label="Tipo de hospedagem" options={PROPERTY_TYPES.map((t) => ({ value: t.id, label: t.label }))} value={propertyTypes} onChange={setPropertyTypes} visible={6} />
+      <Section icon="sparkle" title="Regime">
+        <ChoiceChips label="Refeições incluídas" value={board} onChange={setBoard} options={BOARD_CHOICES} />
+        <p className="card-sub">
+          {board === 'any'
+            ? 'Mostra a tarifa mais barata de cada hotel, seja qual for o regime.'
+            : `O preço acompanhado será sempre o da tarifa ${boardLabel(board).toLowerCase()}.`}
+        </p>
       </Section>
 
-      <Section icon="star" title="Filtros" aside={filterCount > 3 ? 'Muitos filtros podem zerar os resultados' : undefined}>
-        <ChoiceChips
-          segmented label="Avaliação dos hóspedes"
-          value={minRating}
-          onChange={setMinRating}
-          options={[
-            { value: 0 as const, label: 'Qualquer' },
-            { value: 7 as const, label: '3,5+' },
-            { value: 8 as const, label: '4,0+' },
-            { value: 9 as const, label: '4,5+' },
-          ]}
-        />
+      <Section icon="star" title="Filtros">
         <div className="field">
           <span>Estrelas</span>
           <div className="choice-chips">
-            {[2, 3, 4, 5].map((c) => (
-              <button key={c} type="button" aria-pressed={hotelClass.includes(c)} className={`choice-chip${hotelClass.includes(c) ? ' is-on' : ''}`} onClick={() => toggleClass(c)}>
-                {hotelClass.includes(c) && <Icon name="check" size={14} />}
-                {c} {'★'.repeat(1)}
+            {[3, 4, 5].map((s) => (
+              <button key={s} type="button" aria-pressed={stars.includes(s)} className={`choice-chip${stars.includes(s) ? ' is-on' : ''}`} onClick={() => toggleStar(s)}>
+                {stars.includes(s) && <Icon name="check" size={14} />}
+                {s} ★
               </button>
             ))}
           </div>
         </div>
-        <Switch label="Só com cancelamento grátis" checked={freeCancellation} onChange={setFreeCancellation} />
+        <Switch label="Só com cancelamento grátis" checked={refundableOnly} onChange={setRefundableOnly} />
       </Section>
 
       {!result && (
         <button type="button" className="btn btn-primary btn-block" onClick={search} disabled={loading}>
           {loading ? <span className="spinner" aria-hidden="true" /> : <Icon name="search" size={18} />}
-          {loading ? 'Buscando no Google Hotels…' : 'Buscar preços agora'}
+          {loading ? 'Buscando tarifas…' : 'Buscar preços agora'}
         </button>
       )}
+      {loading && <p className="card-sub form-note">Consultando os hotéis da cidade. Pode levar até 30 segundos em cidades grandes.</p>}
 
       {result && (
         <>
           <Section icon="target" title="O que acompanhar">
-            {result.partial && (
-              <p className="notice" role="status">
-                <Icon name="search" size={16} />
-                <span>
-                  Nenhuma hospedagem atende a <strong>todos</strong> os filtros nessas datas. Estas são as mais próximas que o Google encontrou. Para acompanhar só as que
-                  atendem, volte e tire algum filtro.
-                </span>
+            {result.sandbox && (
+              <p className="notice" role="note">
+                <Icon name="info" size={16} />
+                <span>Preços da chave de testes da LiteAPI. Depois de ativar a chave de produção, os valores passam a ser os vendidos de verdade.</span>
               </p>
             )}
             <div className="hotel-options" role="radiogroup" aria-label="Hospedagem a acompanhar">
@@ -643,28 +621,33 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
                   <Icon name="chart" size={20} />
                 </span>
                 <span className="hotel-option-main">
-                  <strong>A mais barata da busca</strong>
-                  <span className="card-sub">Acompanha o menor preço do destino, seja qual for o hotel</span>
+                  <strong>O mais barato da cidade</strong>
+                  <span className="card-sub">{board === 'any' ? 'Seja qual for o hotel' : `Seja qual for o hotel, sempre ${boardLabel(board).toLowerCase()}`}</span>
                 </span>
                 <span className="hotel-option-price">{brl(result.price)}</span>
               </label>
-              {result.options.map((o) =>
-                o.token ? (
-                  <label key={o.token} className={`hotel-option${selected === o.token ? ' is-on' : ''}`}>
-                    <input type="radio" name="hotel" checked={selected === o.token} onChange={() => pick(o.token!)} />
-                    <HotelThumb src={o.thumbnail} />
-                    <span className="hotel-option-main">
-                      <strong>{o.name}</strong>
-                      <span className="card-sub">
-                        {[o.stars ? `${o.stars}★` : '', o.rating ? `nota ${o.rating.toLocaleString('pt-BR')}` : '', o.perNight ? `${brl(o.perNight)}/noite` : ''].filter(Boolean).join(' · ')}
-                      </span>
+              {result.options.map((o) => (
+                <label key={o.hotelId} className={`hotel-option${selected === o.hotelId ? ' is-on' : ''}`}>
+                  <input type="radio" name="hotel" checked={selected === o.hotelId} onChange={() => pick(o.hotelId)} />
+                  <HotelThumb src={o.thumbnail} />
+                  <span className="hotel-option-main">
+                    <strong>{o.name}</strong>
+                    <span className="card-sub">
+                      {[o.stars ? `${o.stars}★` : '', o.rating ? `nota ${o.rating.toLocaleString('pt-BR')}` : '', boardLabel(o.board, o.boardName)].filter(Boolean).join(' · ')}
                     </span>
-                    <span className="hotel-option-price">{brl(o.total)}</span>
-                  </label>
-                ) : null,
-              )}
+                    <span className="card-sub">
+                      {[`${brl(o.perNight)}/noite`, o.refundable ? 'cancelamento grátis' : o.refundable === false ? 'não reembolsável' : '', o.payAtHotel ? `+ ${brl(o.payAtHotel.amount)} no hotel` : '']
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </span>
+                  <span className="hotel-option-price">{brl(o.total)}</span>
+                </label>
+              ))}
             </div>
-            <p className="card-sub">Valores totais da estadia ({n} {n === 1 ? 'noite' : 'noites'}, {hotelGuests(query)}).</p>
+            <p className="card-sub">
+              Total de {n} {n === 1 ? 'noite' : 'noites'} para {lodgingGuests(query)}, com as taxas cobradas na reserva. Taxas pagas direto no hotel aparecem à parte.
+            </p>
           </Section>
 
           <TrackingFields value={tracking} onChange={setTracking} price={price} />

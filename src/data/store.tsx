@@ -4,7 +4,7 @@ import { fetchMonitorPrice, isExpired } from '../lib/prices';
 import { uid } from '../lib/random';
 import { createSeed, DEFAULT_SETTINGS } from './seed';
 import { catchUp, evaluate, recheckToday } from './simulate';
-import type { Alert, AppData, ChatMessage, Monitor, MonitorQuery, PriceInsights, Settings } from './types';
+import { isAuto, type Alert, type AppData, type ChatMessage, type Monitor, type MonitorQuery, type PriceInsights, type Settings } from './types';
 
 const STORAGE_KEY = 'radar-tarifas:v1';
 const MAX_HISTORY = 365;
@@ -52,7 +52,7 @@ function withPrice(m: Monitor, value: number, alertOnRise: boolean): { monitor: 
 
 export type NewMonitor = Pick<Monitor, 'name' | 'category' | 'detail' | 'unit' | 'targetPrice' | 'alertPct'> & {
   currentPrice: number;
-  source: 'serpapi' | 'manual';
+  source: 'serpapi' | 'liteapi' | 'manual';
   query?: MonitorQuery;
   insights?: PriceInsights | null;
 };
@@ -108,6 +108,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const dataRef = useRef(data);
   dataRef.current = data;
   const busy = useRef(false);
+  /** Monitores recém-criados que devem buscar o preço completo logo em seguida */
+  const pendingRefresh = useRef<string[]>([]);
 
   const commit = useCallback((next: AppData) => {
     dataRef.current = next;
@@ -120,7 +122,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refreshOne = useCallback(
     async (id: string): Promise<{ ok: boolean; alert: Alert | null }> => {
       const m = dataRef.current.monitors.find((x) => x.id === id);
-      if (!m || m.source !== 'serpapi') return { ok: false, alert: null };
+      if (!m || !isAuto(m)) return { ok: false, alert: null };
       const now = new Date().toISOString();
 
       if (isExpired(m, todayISO())) {
@@ -156,7 +158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     async (force: boolean): Promise<CheckResult & { found: Alert[] }> => {
       const today = todayISO();
       const due = dataRef.current.monitors.filter(
-        (m) => m.source === 'serpapi' && m.active && !isExpired(m, today) && (force || !m.lastChecked || m.lastChecked.slice(0, 10) < today),
+        (m) => isAuto(m) && m.active && !isExpired(m, today) && (force || !m.lastChecked || m.lastChecked.slice(0, 10) < today),
       );
       const list = force ? due : due.slice(0, MAX_AUTO_REFRESH);
       const found: Alert[] = [];
@@ -224,6 +226,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [refreshOne],
   );
 
+  useEffect(() => {
+    if (pendingRefresh.current.length === 0) return;
+    const ids = pendingRefresh.current.splice(0);
+    ids.forEach((id) => refreshMonitor(id));
+  }, [data, refreshMonitor]);
+
   const addMonitor = useCallback((m: NewMonitor) => {
     const id = uid();
     const today = todayISO();
@@ -239,12 +247,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       source: m.source,
       query: m.query,
       insights: m.insights ?? null,
-      lastChecked: m.source === 'serpapi' ? new Date().toISOString() : null,
+      lastChecked: m.source !== 'manual' ? new Date().toISOString() : null,
       lastError: null,
       history: [{ date: today, value: m.currentPrice }],
       createdAt: today,
     };
     setData((d) => ({ ...d, monitors: [...d.monitors, monitor] }));
+    // Hotel específico na LiteAPI (sem cota mensal): busca já todos os regimes do hotel
+    if (m.query?.kind === 'hospedagem' && m.query.hotelId) pendingRefresh.current.push(id);
     return id;
   }, []);
 

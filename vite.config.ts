@@ -8,6 +8,7 @@ const API_ROUTES: Record<string, string> = {
   '/api/ai': '/server/ai.ts',
   '/api/precos': '/server/prices.ts',
   '/api/cota': '/server/quota.ts',
+  '/api/hospedagem': '/server/lodging.ts',
 };
 
 // Em desenvolvimento, serve as rotas /api/* sem precisar da Vercel
@@ -48,8 +49,8 @@ function devApi(): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  // Disponibiliza APINEX_* e SERPAPI_* (de .env.local) só para o código do servidor
-  Object.assign(process.env, loadEnv(mode, process.cwd(), ['APINEX_', 'SERPAPI_']));
+  // Disponibiliza APINEX_*, SERPAPI_* e LITEAPI_* (de .env.local) só para o código do servidor
+  Object.assign(process.env, loadEnv(mode, process.cwd(), ['APINEX_', 'SERPAPI_', 'LITEAPI_']));
 
   const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 

@@ -1,7 +1,7 @@
 import { cityOf } from './airports';
 import { daysBetween } from '../lib/dates';
 import { fmtShortDate } from '../lib/format';
-import type { FlightQuery, HotelQuery, MonitorQuery, TravelClass } from './types';
+import type { BoardCode, FlightQuery, HotelQuery, LodgingQuery, MonitorQuery, TravelClass } from './types';
 
 export const TRAVEL_CLASS_LABEL: Record<TravelClass, string> = {
   1: 'Econômica',
@@ -73,6 +73,72 @@ export function hotelGuests(q: Pick<HotelQuery, 'adults' | 'childrenAges' | 'chi
 
 export const nights = (q: Pick<HotelQuery, 'checkIn' | 'checkOut'>) => Math.max(0, daysBetween(q.checkIn, q.checkOut));
 
+/* ---------- Hospedagem (LiteAPI) ---------- */
+
+export const BOARD_LABEL: Record<string, string> = {
+  RO: 'Só hospedagem',
+  BI: 'Café da manhã',
+  HB: 'Meia pensão',
+  FB: 'Pensão completa',
+  AI: 'All inclusive',
+};
+
+export const BOARD_CHOICES: { value: BoardCode | 'any'; label: string }[] = [
+  { value: 'any', label: 'Qualquer' },
+  { value: 'BI', label: 'Café da manhã' },
+  { value: 'HB', label: 'Meia pensão' },
+  { value: 'FB', label: 'Pensão completa' },
+  { value: 'AI', label: 'All inclusive' },
+  { value: 'RO', label: 'Só hospedagem' },
+];
+
+/** Nome do regime em português (a LiteAPI devolve em inglês) */
+export const boardLabel = (code?: string | null, fallback?: string | null) => (code && BOARD_LABEL[code]) || fallback || 'Regime não informado';
+
+export const COUNTRIES: { code: string; name: string }[] = [
+  { code: 'BR', name: 'Brasil' },
+  { code: 'AR', name: 'Argentina' },
+  { code: 'CL', name: 'Chile' },
+  { code: 'UY', name: 'Uruguai' },
+  { code: 'PE', name: 'Peru' },
+  { code: 'CO', name: 'Colômbia' },
+  { code: 'MX', name: 'México' },
+  { code: 'DO', name: 'República Dominicana' },
+  { code: 'US', name: 'Estados Unidos' },
+  { code: 'CA', name: 'Canadá' },
+  { code: 'PT', name: 'Portugal' },
+  { code: 'ES', name: 'Espanha' },
+  { code: 'FR', name: 'França' },
+  { code: 'IT', name: 'Itália' },
+  { code: 'GB', name: 'Reino Unido' },
+  { code: 'DE', name: 'Alemanha' },
+  { code: 'NL', name: 'Holanda' },
+  { code: 'GR', name: 'Grécia' },
+  { code: 'AE', name: 'Emirados Árabes' },
+  { code: 'JP', name: 'Japão' },
+];
+
+const countryName = (code: string) => COUNTRIES.find((c) => c.code === code)?.name ?? code;
+
+export function lodgingGuests(q: Pick<LodgingQuery, 'adults' | 'childrenAges'>): string {
+  return [plural(q.adults, 'adulto', 'adultos'), q.childrenAges.length ? plural(q.childrenAges.length, 'criança', 'crianças') : ''].filter(Boolean).join(', ');
+}
+
+export const lodgingName = (q: LodgingQuery) => q.hotelName || `Hospedagem em ${q.cityName}`;
+
+export function lodgingDetail(q: LodgingQuery) {
+  const n = nights(q);
+  return [
+    q.hotelName ? q.cityName : '',
+    plural(n, 'noite', 'noites'),
+    `${fmtShortDate(q.checkIn)} – ${fmtShortDate(q.checkOut)}`,
+    lodgingGuests(q),
+    q.board !== 'any' ? BOARD_LABEL[q.board].toLowerCase() : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 export function flightName(q: FlightQuery) {
   return `${cityOf(q.origin)} → ${cityOf(q.destination)}`;
 }
@@ -111,6 +177,20 @@ export function hotelDetail(q: HotelQuery) {
 
 /** Linhas de resumo da busca, para a tela de detalhe */
 export function querySummary(q: MonitorQuery): { label: string; value: string }[] {
+  if (q.kind === 'hospedagem') {
+    return [
+      { label: 'Destino', value: `${q.cityName}, ${countryName(q.countryCode)}` },
+      { label: 'Acompanha', value: q.hotelName ? q.hotelName : 'O hotel mais barato do destino' },
+      { label: 'Regime', value: q.board === 'any' ? 'Qualquer (a tarifa mais barata)' : BOARD_LABEL[q.board] },
+      { label: 'Datas', value: `${fmtShortDate(q.checkIn)} – ${fmtShortDate(q.checkOut)} (${plural(nights(q), 'noite', 'noites')})` },
+      {
+        label: 'Hóspedes',
+        value: lodgingGuests(q) + (q.childrenAges.length ? ` (idades: ${q.childrenAges.map((a) => (a === 0 ? 'menos de 1' : a)).join(', ')})` : ''),
+      },
+      ...(q.stars?.length ? [{ label: 'Estrelas', value: q.stars.join(', ') }] : []),
+      ...(q.refundableOnly ? [{ label: 'Cancelamento', value: 'Só tarifas reembolsáveis' }] : []),
+    ];
+  }
   if (q.kind === 'voo') {
     return [
       { label: 'Trecho', value: `${cityOf(q.origin)} (${q.origin}) → ${cityOf(q.destination)} (${q.destination})` },

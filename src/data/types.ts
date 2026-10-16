@@ -54,10 +54,40 @@ export type HotelQuery = {
   propertyName?: string;
 };
 
-export type MonitorQuery = ({ kind: 'voo' } & FlightQuery) | ({ kind: 'hotel' } & HotelQuery);
+/** Regimes: só hospedagem, café, meia pensão, pensão completa, all inclusive */
+export type BoardCode = 'RO' | 'BI' | 'HB' | 'FB' | 'AI';
 
-/** serpapi = preço real buscado no Google; manual = o usuário registra; simulado = exemplo */
-export type MonitorSource = 'serpapi' | 'manual' | 'simulado';
+/** Hospedagem pela LiteAPI (com regime de cada tarifa) */
+export type LodgingQuery = {
+  cityName: string;
+  countryCode: string;
+  checkIn: string;
+  checkOut: string;
+  adults: number;
+  childrenAges: number[];
+  board: BoardCode | 'any';
+  stars?: number[];
+  refundableOnly?: boolean;
+  /** Hotel específico escolhido na busca */
+  hotelId?: string;
+  hotelName?: string;
+};
+
+export type MonitorQuery = ({ kind: 'voo' } & FlightQuery) | ({ kind: 'hotel' } & HotelQuery) | ({ kind: 'hospedagem' } & LodgingQuery);
+
+/** serpapi/liteapi = preço real buscado automaticamente; manual = o usuário registra; simulado = exemplo */
+export type MonitorSource = 'serpapi' | 'liteapi' | 'manual' | 'simulado';
+
+export const isAuto = (m: { source: MonitorSource }) => m.source === 'serpapi' || m.source === 'liteapi';
+
+export type BoardOption = {
+  board: string;
+  boardName: string;
+  total: number;
+  room: string;
+  payAtHotel: { amount: number; currency: string } | null;
+  refundable: boolean | null;
+};
 
 export type PriceInsights = {
   priceLevel?: 'low' | 'typical' | 'high' | null;
@@ -73,6 +103,16 @@ export type PriceInsights = {
   perNight?: number | null;
   /** Preço em cada site de reserva, segundo o Google (só para hotel específico) */
   sources?: BookingSource[];
+  /** Hospedagem LiteAPI: tarifa acompanhada */
+  board?: string | null;
+  boardName?: string | null;
+  room?: string | null;
+  payAtHotel?: { amount: number; currency: string } | null;
+  refundable?: boolean | null;
+  /** Melhor tarifa de cada regime no hotel acompanhado */
+  boards?: BoardOption[];
+  /** Preço veio da chave de testes da LiteAPI */
+  sandbox?: boolean;
 };
 
 export type BookingSource = {

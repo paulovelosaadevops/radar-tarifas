@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { Monitor } from '../data/types';
+import { isAuto, type Monitor } from '../data/types';
 import { brl } from '../lib/format';
 import { hotelDetail } from '../data/describe';
 import { ChoiceChips, moneyInput, parseMoney, Switch } from './fields';
@@ -25,7 +25,7 @@ export function EditMonitorForm({ monitor: m, onSubmit, onCancel }: { monitor: M
     const query = hotel && childrenFree !== !!hotel.childrenFree ? { ...hotel, childrenFree } : undefined;
     onSubmit({
       name: name.trim(),
-      detail: query ? hotelDetail(query) : m.source === 'serpapi' ? m.detail : detail.trim(),
+      detail: query ? hotelDetail(query) : isAuto(m) ? m.detail : detail.trim(),
       targetPrice,
       alertPct,
       ...(query ? { query } : {}),
@@ -40,7 +40,7 @@ export function EditMonitorForm({ monitor: m, onSubmit, onCancel }: { monitor: M
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus />
       </label>
 
-      {m.source !== 'serpapi' && (
+      {!isAuto(m) && (
         <label className="field">
           <span>Detalhes</span>
           <input value={detail} onChange={(e) => setDetail(e.target.value)} maxLength={120} />
@@ -76,7 +76,7 @@ export function EditMonitorForm({ monitor: m, onSubmit, onCancel }: { monitor: M
       )}
       </div>
 
-      {m.source === 'serpapi' && <p className="card-sub form-note">Para mudar datas, trecho ou passageiros, crie um novo monitor.</p>}
+      {isAuto(m) && <p className="card-sub form-note">Para mudar datas, trecho ou passageiros, crie um novo monitor.</p>}
 
       {error && (
         <p className="form-error" role="alert">

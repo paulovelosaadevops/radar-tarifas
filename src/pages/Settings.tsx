@@ -118,11 +118,11 @@ export function Settings() {
         header="Preços reais"
         footer={
           quota
-            ? `Plano ${quota.plan} do SerpApi. Cada monitor de passagem ou hospedagem faz 1 busca por dia, quando você abre o app. Buscas repetidas na mesma hora não contam.`
+            ? `Passagens: plano ${quota.plan} do SerpApi, 1 busca por dia por monitor, quando você abre o app (buscas repetidas na mesma hora não contam). Hospedagem: LiteAPI, com regime de cada tarifa e sem limite mensal de buscas.`
             : quotaError ?? 'Consultando…'
         }
       >
-        <Row icon="search" tone="blue" title="Buscas restantes no mês" value={quota ? `${quota.left} de ${quota.perMonth}` : '—'} />
+        <Row icon="search" tone="blue" title="Buscas de passagem no mês" value={quota ? `${quota.left} de ${quota.perMonth}` : '—'} />
         {quota && (
           <div className="row row-meter">
             <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={quota.perMonth} aria-valuenow={quota.left} aria-label="Buscas restantes">

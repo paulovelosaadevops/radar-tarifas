@@ -765,3 +765,14 @@
   padding: 0 16px;
   margin-top: -12px;
 }
+
+.field-row-city {
+  grid-template-columns: 3fr 2fr;
+}
+
+.hotel-option-main strong {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

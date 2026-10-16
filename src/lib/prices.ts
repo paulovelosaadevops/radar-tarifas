@@ -1,4 +1,4 @@
-import type { BookingSource, FlightQuery, HotelQuery, Monitor, PriceInsights } from '../data/types';
+import type { BoardOption, BookingSource, FlightQuery, HotelQuery, LodgingQuery, Monitor, PriceInsights } from '../data/types';
 
 export type FlightOption = {
   price: number;
@@ -76,6 +76,26 @@ export function fallbackBookingUrl(m: Monitor): string | null {
   return null;
 }
 
+/** Links públicos de busca (Booking.com e Google) já com hotel, datas e hóspedes */
+export function lodgingLinks(q: LodgingQuery): { booking: string; google: string } {
+  const where = q.hotelName ? `${q.hotelName}, ${q.cityName}` : q.cityName;
+  const booking = new URLSearchParams({
+    ss: where,
+    checkin: q.checkIn,
+    checkout: q.checkOut,
+    group_adults: String(q.adults),
+    group_children: String(q.childrenAges.length),
+    no_rooms: '1',
+    selected_currency: 'BRL',
+  });
+  q.childrenAges.forEach((age) => booking.append('age', String(age)));
+  const google = new URLSearchParams({ q: where, checkin: q.checkIn, checkout: q.checkOut, adults: String(q.adults), hl: 'pt-BR', gl: 'br', curr: 'BRL' });
+  return {
+    booking: `https://www.booking.com/searchresults.pt-br.html?${booking}`,
+    google: `https://www.google.com/travel/search?${google}`,
+  };
+}
+
 export type Quota = { plan: string; perMonth: number; left: number; used: number };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -97,6 +117,45 @@ export const searchFlights = (q: FlightQuery) => post<FlightResult>('voo', q);
 export const searchHotels = (q: HotelQuery) => post<HotelResult>('hotel', q);
 export const fetchQuota = () => request<Quota>('/api/cota');
 
+/* ---------- Hospedagem (LiteAPI) ---------- */
+
+export type LodgingOption = {
+  hotelId: string;
+  name: string;
+  stars: number | null;
+  rating: number | null;
+  reviews: number | null;
+  thumbnail: string | null;
+  address: string | null;
+  total: number;
+  perNight: number;
+  board: string;
+  boardName: string;
+  room: string;
+  payAtHotel: { amount: number; currency: string } | null;
+  refundable: boolean | null;
+};
+
+export type LodgingResult = { sandbox: boolean; price: number; perNight: number; options: LodgingOption[]; boards: BoardOption[] };
+
+export const searchLodging = (query: LodgingQuery) =>
+  request<LodgingResult>('/api/hospedagem', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
+
+export function lodgingInsights(r: LodgingResult, tracked?: LodgingOption | null): PriceInsights {
+  const o = tracked ?? r.options[0];
+  return {
+    best: tracked ? null : o?.name ?? null,
+    perNight: o?.perNight ?? r.perNight,
+    board: o?.board ?? null,
+    boardName: o?.boardName ?? null,
+    room: o?.room ?? null,
+    payAtHotel: o?.payAtHotel ?? null,
+    refundable: o?.refundable ?? null,
+    boards: r.boards ?? [],
+    sandbox: r.sandbox,
+  };
+}
+
 /** Busca o preço atual de um monitor com consulta real */
 export async function fetchMonitorPrice(m: Monitor): Promise<{ price: number; insights: PriceInsights }> {
   if (m.query?.kind === 'voo') {
@@ -107,12 +166,17 @@ export async function fetchMonitorPrice(m: Monitor): Promise<{ price: number; in
     const r = await searchHotels(m.query);
     return { price: r.price, insights: hotelInsights(r, m.query.propertyToken ? r.options[0] : null) };
   }
+  if (m.query?.kind === 'hospedagem') {
+    const r = await searchLodging(m.query);
+    const insights = lodgingInsights(r, m.query.hotelId ? r.options[0] : null);
+    return { price: r.price, insights: { ...insights, bookingUrl: m.insights?.bookingUrl ?? null } };
+  }
   throw new Error('Este monitor não tem busca automática.');
 }
 
 /** Data da viagem já passou? (não faz sentido continuar buscando) */
 export function isExpired(m: Monitor, today: string): boolean {
   if (m.query?.kind === 'voo') return m.query.departDate < today;
-  if (m.query?.kind === 'hotel') return m.query.checkIn < today;
+  if (m.query?.kind === 'hotel' || m.query?.kind === 'hospedagem') return m.query.checkIn < today;
   return false;
 }

@@ -6,12 +6,12 @@ import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { EditMonitorForm } from '../components/MonitorForm';
 import { airlineSite } from '../data/airlines';
-import { nights, querySummary } from '../data/describe';
+import { boardLabel, lodgingDetail, nights, querySummary } from '../data/describe';
 import { monitorStats, useRange } from '../data/stats';
 import { useStore } from '../data/store';
-import { CATEGORY_LABEL, type Monitor } from '../data/types';
+import { CATEGORY_LABEL, isAuto, type BoardCode, type Monitor } from '../data/types';
 import { brl, brlAxis, fmtRelativeDay } from '../lib/format';
-import { fallbackBookingUrl } from '../lib/prices';
+import { fallbackBookingUrl, lodgingLinks } from '../lib/prices';
 import { navigate } from '../lib/router';
 import { ALERT_KIND } from './Alerts';
 
@@ -31,9 +31,89 @@ function fmtChecked(iso: string) {
     : d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+/** Hospedagem pela LiteAPI: tarifa acompanhada e os outros regimes do mesmo hotel */
+function LodgingGroups({ m }: { m: Monitor }) {
+  const { refreshMonitor, updateMonitor, refreshing } = useStore();
+  if (m.query?.kind !== 'hospedagem') return null;
+  const q = m.query;
+  const ins = m.insights ?? {};
+  const boards = ins.boards ?? [];
+  const tracked = q.board === 'any' ? null : q.board;
+
+  const switchBoard = (board: BoardCode) => {
+    const query = { ...q, board };
+    updateMonitor(m.id, { query, detail: lodgingDetail(query) });
+    // Espera o estado atualizar antes de buscar o preço no novo regime
+    setTimeout(() => refreshMonitor(m.id), 0);
+  };
+
+  return (
+    <>
+      <Group
+        header="Tarifa acompanhada"
+        footer={
+          <>
+            {ins.sandbox ? 'Preços da chave de testes da LiteAPI. ' : ''}
+            {m.lastError ? <span className="text-bad">{m.lastError} </span> : 'O app busca o preço de novo uma vez por dia, quando você abre.'}
+          </>
+        }
+      >
+        <Row icon="sparkle" tone="purple" title="Regime" value={boardLabel(ins.board, ins.boardName)} />
+        {ins.room && <Row icon="bed" tone="indigo" title="Quarto" value={ins.room} multiline />}
+        {!q.hotelId && ins.best && <Row icon="house" tone="teal" title="Hotel mais barato" value={ins.best} multiline />}
+        {ins.refundable != null && (
+          <Row icon={ins.refundable ? 'check' : 'info'} tone={ins.refundable ? 'green' : 'orange'} title="Cancelamento" value={ins.refundable ? 'Grátis' : 'Não reembolsável'} />
+        )}
+        {ins.payAtHotel && (
+          <Row
+            icon="bag"
+            tone="orange"
+            title="Pago direto no hotel"
+            value={ins.payAtHotel.currency === 'BRL' ? brl(ins.payAtHotel.amount) : `${ins.payAtHotel.amount.toFixed(2)} ${ins.payAtHotel.currency}`}
+          />
+        )}
+        <Row icon="clock" tone="gray" title="Atualizado" value={m.lastChecked ? fmtChecked(m.lastChecked) : 'nunca'} />
+        <Row icon="refresh" tone="green" title={refreshing ? 'Atualizando…' : 'Atualizar agora'} tint onClick={() => refreshMonitor(m.id)} disabled={refreshing} />
+      </Group>
+
+      {q.hotelId && boards.length > 0 && (
+        <Group header="Regimes neste hotel" footer="Melhor tarifa de cada regime para as suas datas e hóspedes. Toque para passar a acompanhar outro regime.">
+          {boards.map((b) => {
+            const isTracked = tracked ? b.board === tracked : b.board === ins.board;
+            return (
+              <Row
+                key={b.board}
+                title={
+                  <span className="alert-title">
+                    {boardLabel(b.board, b.boardName)}
+                    {isTracked && <span className="status status-good">Acompanhando</span>}
+                  </span>
+                }
+                subtitle={[b.room, b.refundable ? 'cancelamento grátis' : b.refundable === false ? 'não reembolsável' : ''].filter(Boolean).join(' · ') || undefined}
+                value={brl(b.total)}
+                multiline
+                onClick={!isTracked && (['RO', 'BI', 'HB', 'FB', 'AI'] as string[]).includes(b.board) ? () => switchBoard(b.board as BoardCode) : undefined}
+              />
+            );
+          })}
+        </Group>
+      )}
+    </>
+  );
+}
+
 /** Links para reservar: Google Flights/Hotels, site da companhia e do hotel */
 function BookingGroup({ m }: { m: Monitor }) {
-  if (m.source !== 'serpapi' || !m.query) return null;
+  if (!isAuto(m) || !m.query) return null;
+  if (m.query.kind === 'hospedagem') {
+    const links = lodgingLinks(m.query);
+    return (
+      <Group header="Reservar" footer="Os links abrem a busca já com o hotel, as datas e os hóspedes. Confira se a tarifa tem o mesmo regime e as mesmas condições antes de reservar.">
+        <Row icon="bed" tone="blue" title="Ver no Booking.com" subtitle={m.query.hotelName ?? `Hotéis em ${m.query.cityName}`} href={links.booking} />
+        <Row icon="globe" tone="indigo" title="Ver no Google" subtitle="Compare preços entre sites de reserva" href={links.google} />
+      </Group>
+    );
+  }
   const googleUrl = m.insights?.bookingUrl || fallbackBookingUrl(m);
   const isFlight = m.query.kind === 'voo';
   const airlines = (m.insights?.airlines ?? []).map(airlineSite).filter((a): a is { name: string; url: string } => !!a);
@@ -111,6 +191,8 @@ function PriceGroup({ m }: { m: Monitor }) {
       </Group>
     );
   }
+
+  if (m.query?.kind === 'hospedagem') return <LodgingGroups m={m} />;
 
   const level = m.insights?.priceLevel ? LEVEL[m.insights.priceLevel] : null;
   const hotel = m.query?.kind === 'hotel' ? m.query : null;
@@ -215,7 +297,7 @@ export function MonitorDetail({ id }: { id: string }) {
         <header className="detail-header">
           <span className="detail-eyebrow">
             {CATEGORY_LABEL[m.category]}
-            {m.source === 'serpapi' && <span className="status status-good">Preço real</span>}
+            {isAuto(m) && <span className="status status-good">Preço real</span>}
             {m.source === 'simulado' && <span className="status">Exemplo</span>}
             {!m.active && <span className="status">Pausado</span>}
           </span>
@@ -225,10 +307,16 @@ export function MonitorDetail({ id }: { id: string }) {
             <span className="price-hero">{brl(s.current)}</span>
             {m.unit && <span className="unit">{m.unit}</span>}
           </div>
-          {m.query?.kind === 'hotel' && (
+          {(m.query?.kind === 'hotel' || m.query?.kind === 'hospedagem') && (
             <span className="detail-sub">
               Total de {nights(m.query)} {nights(m.query) === 1 ? 'noite' : 'noites'}
               {m.insights?.perNight ? ` · ${brl(m.insights.perNight)} por noite` : ''}
+            </span>
+          )}
+          {m.query?.kind === 'hospedagem' && (
+            <span className="detail-sub">
+              <span className="status status-good">{boardLabel(m.insights?.board, m.insights?.boardName)}</span>
+              {m.insights?.payAtHotel ? `+ ${brl(m.insights.payAtHotel.amount)} pagos no hotel` : 'taxas da reserva incluídas'}
             </span>
           )}
           {m.query?.kind === 'hotel' && (
