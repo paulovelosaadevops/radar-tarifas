@@ -17,7 +17,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /** Comodidades aceitas pelo Google Hotels (código → rótulo). As primeiras aparecem sem precisar expandir. */
 export const HOTEL_AMENITIES: { id: number; label: string; short: string }[] = [
   { id: 9, label: 'Café da manhã grátis', short: 'café incluso' },
-  { id: 52, label: 'All inclusive', short: 'all inclusive' },
+  { id: 52, label: 'Oferece all inclusive', short: 'oferece all inclusive' },
   { id: 6, label: 'Piscina', short: 'piscina' },
   { id: 11, label: 'Acesso à praia', short: 'pé na areia' },
   { id: 35, label: 'Wi-Fi grátis', short: 'Wi-Fi' },

@@ -579,6 +579,15 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
 
       <Section icon="sparkle" title="O que não pode faltar" aside={amenities.length ? `${amenities.length} ${amenities.length === 1 ? 'item' : 'itens'}` : undefined}>
         <MultiChips label="Comodidades" options={HOTEL_AMENITIES.map((a) => ({ value: a.id, label: a.label }))} value={amenities} onChange={setAmenities} visible={8} />
+        {amenities.includes(52) && (
+          <p className="notice" role="note">
+            <Icon name="info" size={16} />
+            <span>
+              Este filtro mostra só hotéis que <strong>oferecem</strong> all inclusive, mas o Google não informa o regime das tarifas: o preço será o da tarifa
+              mais barata, que costuma ser só hospedagem ou com café. Confira o valor all inclusive no site do hotel.
+            </span>
+          </p>
+        )}
         <MultiChips label="Tipo de hospedagem" options={PROPERTY_TYPES.map((t) => ({ value: t.id, label: t.label }))} value={propertyTypes} onChange={setPropertyTypes} visible={6} />
       </Section>
 

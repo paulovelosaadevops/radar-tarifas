@@ -231,6 +231,12 @@ export function MonitorDetail({ id }: { id: string }) {
               {m.insights?.perNight ? ` · ${brl(m.insights.perNight)} por noite` : ''}
             </span>
           )}
+          {m.query?.kind === 'hotel' && (
+            <span className="detail-sub">
+              <span className="status">Regime não informado</span>
+              {m.query.amenities?.includes(52) ? 'tarifa mais barata, que pode não ser all inclusive' : 'tarifa mais barata do Google'}
+            </span>
+          )}
           {isNew ? <span className="delta delta-flat">Monitorando desde hoje</span> : <Delta change={s.change} suffix={rangeText(range)} />}
         </header>
       </CompactHeader>
