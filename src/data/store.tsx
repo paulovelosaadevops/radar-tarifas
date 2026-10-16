@@ -173,22 +173,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Na abertura: notifica alertas simulados e busca preços reais vencidos (no máximo 1x por dia)
   useEffect(() => {
+    // Em desenvolvimento o React roda este efeito duas vezes: "busy" garante uma única busca
+    if (busy.current) return;
     const initial = startup.current;
     startup.current = [];
-    let cancelled = false;
-    (async () => {
-      if (busy.current) return;
-      busy.current = true;
-      setRefreshing(true);
-      const { found } = await refreshReal(false);
-      busy.current = false;
-      if (cancelled) return;
-      setRefreshing(false);
-      if (dataRef.current.settings.notifications) notify([...initial, ...found]);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    busy.current = true;
+    setRefreshing(true);
+    refreshReal(false)
+      .then(({ found }) => {
+        if (dataRef.current.settings.notifications) notify([...initial, ...found]);
+      })
+      .finally(() => {
+        busy.current = false;
+        setRefreshing(false);
+      });
   }, [refreshReal]);
 
   const checkNow = useCallback(async (): Promise<CheckResult> => {

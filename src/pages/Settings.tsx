@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { PageHeader } from '../components/common';
+import { Group, LargeTitle, Row, Segmented, Toggle, type Tone } from '../components/common';
+import type { IconName } from '../components/Icon';
 import { fetchQuota, type Quota } from '../lib/prices';
+import { navigate } from '../lib/router';
 import { useStore } from '../data/store';
-import type { FreeModel, ThemePref } from '../data/types';
+import type { Category, FreeModel, ThemePref } from '../data/types';
 
 const FREE_MODELS: { id: FreeModel; label: string }[] = [
-  { id: 'free/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash (padrão, rápido)' },
+  { id: 'free/deepseek-v4.1-flash', label: 'DeepSeek V4.1 Flash' },
   { id: 'free/gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
   { id: 'free/qwen-3.8-max', label: 'Qwen 3.8 Max' },
   { id: 'free/gpt-6-luna', label: 'GPT-6 Luna' },
@@ -13,11 +15,19 @@ const FREE_MODELS: { id: FreeModel; label: string }[] = [
   { id: 'free/glm-5.3-flash', label: 'GLM 5.3 Flash' },
 ];
 
-const THEMES: { id: ThemePref; label: string }[] = [
-  { id: 'system', label: 'Sistema' },
-  { id: 'light', label: 'Claro' },
-  { id: 'dark', label: 'Escuro' },
+const THEMES: { value: ThemePref; label: string }[] = [
+  { value: 'system', label: 'Auto' },
+  { value: 'light', label: 'Claro' },
+  { value: 'dark', label: 'Escuro' },
 ];
+
+const CATEGORY_ICON: Record<Category, { icon: IconName; tone: Tone }> = {
+  voo: { icon: 'plane', tone: 'blue' },
+  hotel: { icon: 'bed', tone: 'indigo' },
+  energia: { icon: 'bolt', tone: 'yellow' },
+  bancaria: { icon: 'bag', tone: 'teal' },
+  outro: { icon: 'chart', tone: 'gray' },
+};
 
 const notificationsSupported = () => typeof window !== 'undefined' && 'Notification' in window;
 
@@ -41,136 +51,105 @@ export function Settings() {
     updateSettings({ notifications: result === 'granted' });
   };
 
+  const notifFooter = !notificationsSupported()
+    ? 'Este navegador não suporta notificações.'
+    : permission === 'denied'
+      ? 'As notificações estão bloqueadas no navegador. Libere nas configurações do site.'
+      : 'Por padrão, só quedas de preço e alvos atingidos geram alerta.';
+
+  const quotaPct = quota ? Math.min(100, (quota.left / Math.max(1, quota.perMonth)) * 100) : 0;
+
   return (
     <div className="page page-narrow">
-      <PageHeader title="Ajustes" />
+      <LargeTitle title="Ajustes" />
 
-      <section className="card settings-group">
-        <h2>Aparência</h2>
-        <div className="setting-row">
-          <span>Tema</span>
-          <div className="segmented" role="group" aria-label="Tema">
-            {THEMES.map((t) => (
-              <button key={t.id} type="button" className={settings.theme === t.id ? 'is-active' : ''} aria-pressed={settings.theme === t.id} onClick={() => updateSettings({ theme: t.id })}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+      <Group header="Aparência">
+        <Row icon="moon" tone="indigo" title="Tema" trailing={<Segmented label="Tema" value={settings.theme} onChange={(theme) => updateSettings({ theme })} options={THEMES} />} />
+      </Group>
 
-      <section className="card settings-group">
-        <h2>Alertas e notificações</h2>
-        <div className="setting-row">
-          <div>
-            <span>Notificações no aparelho</span>
-            <p className="card-sub">
-              {!notificationsSupported()
-                ? 'Este navegador não suporta notificações.'
-                : permission === 'denied'
-                  ? 'Bloqueadas no navegador. Libere nas configurações do site.'
-                  : 'Aviso quando surgir um alerta novo.'}
-            </p>
-          </div>
-          <label className="switch">
-            <input
-              type="checkbox"
+      <Group header="Notificações" footer={notifFooter}>
+        <Row
+          icon="bell"
+          tone="red"
+          title="Notificações no aparelho"
+          trailing={
+            <Toggle
               checked={settings.notifications}
               disabled={!notificationsSupported() || permission === 'denied'}
-              onChange={(e) => toggleNotifications(e.target.checked)}
+              onChange={toggleNotifications}
+              label="Notificações no aparelho"
             />
-            <span className="switch-track" aria-hidden="true" />
-            <span className="sr-only">Notificações no aparelho</span>
-          </label>
-        </div>
-        <div className="setting-row">
-          <div>
-            <span>Avisar também quando o preço subir</span>
-            <p className="card-sub">Por padrão, só quedas e alvos atingidos geram alerta.</p>
-          </div>
-          <label className="switch">
-            <input type="checkbox" checked={settings.alertOnRise} onChange={(e) => updateSettings({ alertOnRise: e.target.checked })} />
-            <span className="switch-track" aria-hidden="true" />
-            <span className="sr-only">Avisar quando o preço subir</span>
-          </label>
-        </div>
-      </section>
+          }
+        />
+        <Row icon="up" tone="orange" title="Avisar quando o preço subir" trailing={<Toggle checked={settings.alertOnRise} onChange={(v) => updateSettings({ alertOnRise: v })} label="Avisar quando o preço subir" />} />
+      </Group>
 
-      <section className="card settings-group">
-        <h2>Inteligência artificial</h2>
-        <label className="field">
-          <span>Modelo do chat (somente gratuitos)</span>
-          <select value={settings.aiModel} onChange={(e) => updateSettings({ aiModel: e.target.value as FreeModel })}>
-            {FREE_MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="card-sub">
-          Os modelos gratuitos do APInex exigem um check-in diário em{' '}
-          <a href="https://apinex.bond/airdrop?tab=quests" target="_blank" rel="noreferrer">
-            apinex.bond
-          </a>
-          .
-        </p>
-      </section>
-
-      <section className="card settings-group">
-        <h2>Preços reais (SerpApi)</h2>
-        {quota ? (
+      <Group
+        header="RadÁ"
+        footer={
           <>
-            <div className="setting-row">
-              <span>Buscas restantes este mês</span>
-              <strong>
-                {quota.left} de {quota.perMonth}
-              </strong>
-            </div>
-            <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={quota.perMonth} aria-valuenow={quota.left} aria-label="Buscas restantes">
-              <span style={{ width: `${Math.min(100, (quota.left / Math.max(1, quota.perMonth)) * 100)}%` }} className={quota.left < quota.perMonth * 0.15 ? 'is-low' : ''} />
-            </div>
-            <p className="card-sub">
-              Plano {quota.plan}. Cada monitor de passagem ou hospedagem faz 1 busca por dia, quando você abre o app. Buscas repetidas na mesma hora não contam.
-            </p>
+            Só modelos gratuitos. Eles exigem um check-in diário em{' '}
+            <a href="https://apinex.bond/airdrop?tab=quests" target="_blank" rel="noreferrer">
+              apinex.bond
+            </a>
+            .
           </>
-        ) : (
-          <p className="card-sub">{quotaError ?? 'Consultando…'}</p>
-        )}
-      </section>
+        }
+      >
+        <Row
+          icon="sparkle"
+          tone="purple"
+          title="Modelo"
+          trailing={
+            <span className="row-select">
+              <select value={settings.aiModel} onChange={(e) => updateSettings({ aiModel: e.target.value as FreeModel })} aria-label="Modelo do RadÁ">
+                {FREE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </span>
+          }
+        />
+      </Group>
 
-      <section className="card settings-group">
-        <h2>Monitores</h2>
-        {monitors.length === 0 ? (
-          <p className="card-sub">Nenhum monitor criado.</p>
-        ) : (
-          monitors.map((m) => (
-            <div className="setting-row" key={m.id}>
-              <a href={`#/monitor/${m.id}`} className="setting-link">
-                {m.name}
-              </a>
-              <label className="switch">
-                <input type="checkbox" checked={m.active} onChange={(e) => updateMonitor(m.id, { active: e.target.checked })} />
-                <span className="switch-track" aria-hidden="true" />
-                <span className="sr-only">{m.active ? 'Pausar' : 'Ativar'} {m.name}</span>
-              </label>
+      <Group
+        header="Preços reais"
+        footer={
+          quota
+            ? `Plano ${quota.plan} do SerpApi. Cada monitor de passagem ou hospedagem faz 1 busca por dia, quando você abre o app. Buscas repetidas na mesma hora não contam.`
+            : quotaError ?? 'Consultando…'
+        }
+      >
+        <Row icon="search" tone="blue" title="Buscas restantes no mês" value={quota ? `${quota.left} de ${quota.perMonth}` : '—'} />
+        {quota && (
+          <div className="row row-meter">
+            <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={quota.perMonth} aria-valuenow={quota.left} aria-label="Buscas restantes">
+              <span style={{ width: `${quotaPct}%` }} className={quotaPct < 15 ? 'is-low' : ''} />
             </div>
-          ))
+          </div>
         )}
-      </section>
+      </Group>
 
-      <section className="card settings-group">
-        <h2>Dados</h2>
-        <p className="card-sub">Os preços atuais são simulados, para demonstração. Tudo fica salvo só neste aparelho.</p>
-        <div className="form-actions form-actions-start">
-          <button type="button" className="btn" onClick={() => confirm('Substituir tudo pelos dados de exemplo?') && resetDemo()}>
-            Restaurar dados de exemplo
-          </button>
-          <button type="button" className="btn btn-danger" onClick={() => confirm('Apagar todos os monitores, alertas e conversas?') && clearAll()}>
-            Apagar tudo
-          </button>
-        </div>
-      </section>
+      {monitors.length > 0 && (
+        <Group header="Monitores" footer="Monitores pausados não buscam preço nem geram alertas.">
+          {monitors.map((m) => (
+            <Row
+              key={m.id}
+              icon={CATEGORY_ICON[m.category].icon}
+              tone={CATEGORY_ICON[m.category].tone}
+              title={<button type="button" className="row-link" onClick={() => navigate(`/monitor/${m.id}`)}>{m.name}</button>}
+              trailing={<Toggle checked={m.active} onChange={(v) => updateMonitor(m.id, { active: v })} label={`${m.active ? 'Pausar' : 'Ativar'} ${m.name}`} />}
+            />
+          ))}
+        </Group>
+      )}
+
+      <Group header="Dados" footer="Tudo fica salvo só neste aparelho.">
+        <Row title="Restaurar dados de exemplo" tint onClick={() => confirm('Substituir tudo pelos dados de exemplo?') && resetDemo()} />
+        <Row title="Apagar tudo" destructive onClick={() => confirm('Apagar todos os monitores, alertas e conversas?') && clearAll()} />
+      </Group>
 
       <p className="about">Radar de Tarifas · versão {__APP_VERSION__}</p>
     </div>

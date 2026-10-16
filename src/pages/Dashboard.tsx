@@ -1,17 +1,19 @@
 import { useCallback, useState } from 'react';
 import { LineChart, Sparkline, type ChartSeries } from '../components/charts';
-import { Delta, EmptyState, PageHeader, RangeFilter, Toast } from '../components/common';
+import { CircleButton, direction, EmptyState, Group, LargeTitle, Pill, RangeFilter, rangeText, Toast } from '../components/common';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { NewMonitor } from '../components/NewMonitor';
 import { monitorStats, useRange } from '../data/stats';
 import { useStore, type NewMonitor as NewMonitorData } from '../data/store';
-import { CATEGORY_LABEL, type Monitor } from '../data/types';
-import { brl, pct, signedPct } from '../lib/format';
+import { type Monitor } from '../data/types';
+import { brl, signedPct } from '../lib/format';
 import { navigate } from '../lib/router';
 
 const SERIES_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
 type Slots = [string | null, string | null, string | null];
+
+const today = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long' }).format(new Date());
 
 export function Dashboard() {
   const { monitors, unreadCount, checkNow, addMonitor, refreshing } = useStore();
@@ -55,7 +57,7 @@ export function Dashboard() {
 
   const withTarget = stats.filter((x) => x.m.targetPrice != null);
   const below = withTarget.filter((x) => x.s.belowTarget);
-  const biggestDrop = stats.reduce<(typeof stats)[number] | null>((best, x) => (!best || x.s.change < best.s.change ? x : best), null);
+  const biggestDrop = stats.reduce<(typeof stats)[number] | null>((best, x) => (x.s.points.length > 1 && (!best || x.s.change < best.s.change) ? x : best), null);
 
   const onCheck = async () => {
     const { alerts, errors } = await checkNow();
@@ -72,109 +74,104 @@ export function Dashboard() {
 
   return (
     <div className="page">
-      <PageHeader
-        title="Painel"
-        subtitle={`${active.length} ${active.length === 1 ? 'monitor ativo' : 'monitores ativos'}`}
-        actions={
+      <LargeTitle
+        title="Radar"
+        subtitle={today}
+        trailing={
           <>
-            <button type="button" className="btn" onClick={onCheck} disabled={refreshing} title="Busca os preços de hoje">
-              <Icon name="refresh" size={18} className={refreshing ? 'spin' : undefined} />
-              <span className="hide-sm">Verificar agora</span>
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
-              <Icon name="plus" size={18} />
-              <span>Novo monitor</span>
-            </button>
+            <CircleButton icon="refresh" label="Verificar preços agora" onClick={onCheck} disabled={refreshing} spinning={refreshing} />
+            <CircleButton icon="plus" label="Novo monitor" onClick={() => setAdding(true)} filled />
           </>
         }
       />
 
       {monitors.length === 0 ? (
         <EmptyState icon="chart" title="Nenhum monitor ainda">
-          <p>Crie um monitor para acompanhar o preço de uma passagem, hospedagem, conta de energia ou tarifa bancária.</p>
+          <p>Acompanhe o preço de passagens, hospedagens e tarifas. Avisamos quando cair.</p>
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
             <Icon name="plus" size={18} /> Criar primeiro monitor
           </button>
         </EmptyState>
       ) : (
         <>
-          <div className="filters">
-            <RangeFilter value={range} onChange={setRange} />
-          </div>
+          <RangeFilter value={range} onChange={setRange} />
 
-          <section className="tiles" aria-label="Resumo">
-            <div className="tile">
-              <span className="tile-label">Abaixo do alvo</span>
-              <span className="tile-value">
+          <section className="widgets" aria-label="Resumo">
+            <div className="widget">
+              <span className="widget-label">
+                <Icon name="target" size={14} /> Abaixo do alvo
+              </span>
+              <span className="widget-value">
                 {below.length}
                 <small> de {withTarget.length}</small>
               </span>
-              <span className="tile-sub">com preço-alvo</span>
             </div>
-            <div className="tile">
-              <span className="tile-label">Maior queda em {range} dias</span>
+            <div className="widget">
+              <span className="widget-label">
+                <Icon name="down" size={14} /> Maior queda
+              </span>
               {biggestDrop && biggestDrop.s.change < 0 ? (
                 <>
-                  <span className="tile-value">{signedPct(biggestDrop.s.change)}</span>
-                  <span className="tile-sub">{biggestDrop.m.name}</span>
+                  <span className="widget-value widget-value-good">{signedPct(biggestDrop.s.change)}</span>
+                  <span className="widget-sub">{biggestDrop.m.name}</span>
                 </>
               ) : (
                 <>
-                  <span className="tile-value">—</span>
-                  <span className="tile-sub">nenhum preço caiu</span>
+                  <span className="widget-value">—</span>
+                  <span className="widget-sub">nenhum preço caiu</span>
                 </>
               )}
             </div>
-            <button type="button" className="tile tile-link" onClick={() => navigate('/alertas')}>
-              <span className="tile-label">Alertas não lidos</span>
-              <span className="tile-value">{unreadCount}</span>
-              <span className="tile-sub">ver alertas →</span>
+            <button type="button" className="widget widget-link" onClick={() => navigate('/alertas')}>
+              <span className="widget-label">
+                <Icon name="bell" size={14} /> Alertas
+              </span>
+              <span className="widget-value">{unreadCount}</span>
+              <span className="widget-sub">{unreadCount === 1 ? 'não lido' : 'não lidos'}</span>
             </button>
           </section>
 
-          {comparable.length > 0 && (
-            <section className="card" aria-labelledby="compare-title">
-              <div className="card-header">
-                <div>
-                  <h2 id="compare-title">Variação no período</h2>
-                  <p className="card-sub">Quanto cada preço mudou desde {range} dias atrás, em %</p>
+          <Group header="Monitores">
+            {monitors.map((m) => (
+              <MonitorRow key={m.id} monitor={m} range={range} />
+            ))}
+          </Group>
+
+          {comparable.length > 1 && (
+            <Group
+              header={
+                <span className="group-header-row">
+                  Comparar variação
+                  <button type="button" className="text-btn" onClick={() => setShowTable((v) => !v)} aria-pressed={showTable}>
+                    {showTable ? 'Ver gráfico' : 'Ver tabela'}
+                  </button>
+                </span>
+              }
+              footer={`Quanto cada preço mudou ${rangeText(range)}, em %. Escolha até 3.`}
+            >
+              <div className="list-pad">
+                <div className="chips" role="group" aria-label="Monitores comparados (até 3)">
+                  {comparable.map((m) => {
+                    const slot = validSlots.indexOf(m.id);
+                    const full = slot < 0 && validSlots.every((s) => s != null);
+                    return (
+                      <button key={m.id} type="button" className={`chip${slot >= 0 ? ' is-on' : ''}`} aria-pressed={slot >= 0} disabled={full} onClick={() => toggleCompare(m.id)}>
+                        {slot >= 0 && <span className="line-key" style={{ background: SERIES_COLORS[slot] }} />}
+                        {m.name}
+                      </button>
+                    );
+                  })}
                 </div>
-                <button type="button" className="icon-btn" onClick={() => setShowTable((v) => !v)} aria-pressed={showTable} title={showTable ? 'Ver gráfico' : 'Ver tabela'}>
-                  <Icon name={showTable ? 'chart' : 'table'} />
-                </button>
+                {series.length === 0 ? (
+                  <p className="muted">Escolha monitores acima para comparar.</p>
+                ) : showTable ? (
+                  <CompareTable series={series} />
+                ) : (
+                  <LineChart series={series} format={signedPct} axisFormat={(v) => `${v > 0 ? '+' : ''}${v}%`} label="Variação percentual dos preços no período" />
+                )}
               </div>
-
-              <div className="chips" role="group" aria-label="Monitores comparados (até 3)">
-                {comparable.map((m) => {
-                  const slot = validSlots.indexOf(m.id);
-                  const full = slot < 0 && validSlots.every((s) => s != null);
-                  return (
-                    <button key={m.id} type="button" className={`chip${slot >= 0 ? ' is-on' : ''}`} aria-pressed={slot >= 0} disabled={full} onClick={() => toggleCompare(m.id)}>
-                      {slot >= 0 && <span className="line-key" style={{ background: SERIES_COLORS[slot] }} />}
-                      {m.name}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {series.length === 0 ? (
-                <p className="muted">Escolha até 3 monitores acima para comparar.</p>
-              ) : showTable ? (
-                <CompareTable series={series} />
-              ) : (
-                <LineChart series={series} format={signedPct} axisFormat={(v) => `${v > 0 ? '+' : ''}${v}%`} label="Variação percentual dos preços no período" />
-              )}
-            </section>
+            </Group>
           )}
-
-          <section aria-label="Monitores">
-            <h2 className="section-title">Monitores</h2>
-            <div className="monitor-grid">
-              {monitors.map((m) => (
-                <MonitorCard key={m.id} monitor={m} range={range} />
-              ))}
-            </div>
-          </section>
         </>
       )}
 
@@ -188,38 +185,40 @@ export function Dashboard() {
   );
 }
 
-function MonitorCard({ monitor: m, range }: { monitor: Monitor; range: number }) {
+const SPARK_COLOR = { good: 'var(--green)', bad: 'var(--red)', flat: 'var(--label-3)' } as const;
+
+function MonitorRow({ monitor: m, range }: { monitor: Monitor; range: number }) {
   const s = monitorStats(m, range);
-  const gap = m.targetPrice != null ? s.current - m.targetPrice : null;
+  const isNew = s.points.length < 2;
+  const dir = direction(s.change);
+  const status =
+    m.lastError ? (
+      <span className="status status-bad">Falha na busca</span>
+    ) : s.belowTarget ? (
+      <span className="status status-good">Alvo atingido</span>
+    ) : m.source === 'simulado' ? (
+      <span className="status">Exemplo</span>
+    ) : !m.active ? (
+      <span className="status">Pausado</span>
+    ) : null;
 
   return (
-    <button type="button" className={`monitor-card${m.active ? '' : ' is-paused'}`} onClick={() => navigate(`/monitor/${m.id}`)}>
-      <div className="monitor-card-top">
-        <span className="tag">{CATEGORY_LABEL[m.category]}</span>
-        {m.source === 'simulado' && <span className="tag tag-muted">Exemplo</span>}
-        {m.source === 'serpapi' && m.insights?.priceLevel !== 'low' && !m.lastError && <span className="tag tag-live">Preço real</span>}
-        {m.source === 'serpapi' && m.insights?.priceLevel === 'low' && <span className="tag tag-good">Preço baixo</span>}
-        {m.lastError && (
-          <span className="tag tag-bad" title={m.lastError}>
-            Falha na busca
-          </span>
-        )}
-        {!m.active && <span className="tag tag-muted">Pausado</span>}
-      </div>
-      <h3 className="monitor-card-name">{m.name}</h3>
-      {m.detail && <p className="monitor-card-detail">{m.detail}</p>}
-      <div className="monitor-card-price">
-        <span className="price">{brl(s.current)}</span>
-        {m.unit && <span className="unit">{m.unit}</span>}
-      </div>
-      {s.points.length > 1 ? <Delta change={s.change} suffix={`em ${range} dias`} /> : <span className="delta delta-flat">Monitorando desde hoje</span>}
-      {s.points.length > 1 && <Sparkline points={s.points} />}
-      {gap != null && (
-        <p className={`monitor-card-target${gap <= 0 ? ' is-hit' : ''}`}>
-          <Icon name={gap <= 0 ? 'check' : 'target'} size={14} />
-          {gap <= 0 ? `Abaixo do alvo de ${brl(m.targetPrice!)}` : `Faltam ${brl(gap)} (${pct((gap / s.current) * 100)}) para o alvo`}
-        </p>
-      )}
+    <button type="button" className={`stock-row${m.active ? '' : ' is-paused'}`} onClick={() => navigate(`/monitor/${m.id}`)}>
+      <span className="stock-main">
+        <span className="stock-name">{m.name}</span>
+        <span className="stock-detail">
+          {status}
+          {m.detail}
+        </span>
+      </span>
+      <span className="stock-spark">{!isNew && <Sparkline points={s.points} color={SPARK_COLOR[dir]} height={34} />}</span>
+      <span className="stock-price">
+        <span className="stock-value">
+          {brl(s.current)}
+          {m.unit && <small>{m.unit}</small>}
+        </span>
+        <Pill change={s.change} isNew={isNew} />
+      </span>
     </button>
   );
 }

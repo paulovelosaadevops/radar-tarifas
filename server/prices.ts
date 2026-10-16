@@ -121,6 +121,8 @@ async function searchFlights(q: any) {
   if (!Number.isFinite(lowest)) return json(404, { error: 'Nenhum voo encontrado para essa busca. Tente outras datas ou aeroportos.' });
 
   return json(200, {
+    // Link do Google Flights já com trecho, datas e passageiros: lá ficam os botões de reserva das companhias
+    googleUrl: data?.search_metadata?.google_flights_url ?? null,
     price: lowest,
     priceLevel: insights.price_level ?? null,
     typicalRange: Array.isArray(insights.typical_price_range) ? insights.typical_price_range : null,
@@ -129,6 +131,18 @@ async function searchFlights(q: any) {
 }
 
 const NEARBY_KM = 60;
+
+function googleHotelsUrl(q: string, checkIn: string, checkOut: string, adults: number) {
+  const url = new URL('https://www.google.com/travel/search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('checkin', checkIn);
+  url.searchParams.set('checkout', checkOut);
+  url.searchParams.set('adults', String(adults));
+  url.searchParams.set('hl', 'pt-BR');
+  url.searchParams.set('gl', 'br');
+  url.searchParams.set('curr', 'BRL');
+  return url.toString();
+}
 
 function distanceKm(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
   const rad = Math.PI / 180;
@@ -182,8 +196,8 @@ async function searchHotels(q: any) {
     property_token: propertyToken,
   },
     // O Google Hotels só aplica filtros de comodidade/tipo (ex.: all inclusive) em buscas em inglês.
-    // Preços continuam em BRL; nomes de hotéis não mudam.
-    amenities.length || propertyTypes.length ? { hl: 'en', gl: 'us' } : undefined,
+    // O país continua Brasil: com gl=us, "Natal" virava uma cidade dos EUA. Preços seguem em BRL.
+    amenities.length || propertyTypes.length ? { hl: 'en', gl: 'br' } : undefined,
   );
 
   const toOption = (p: any) => ({
@@ -195,6 +209,7 @@ async function searchHotels(q: any) {
     reviews: p.reviews ?? null,
     stars: p.extracted_hotel_class ?? null,
     thumbnail: p.images?.[0]?.thumbnail ?? null,
+    link: typeof p.link === 'string' && /^https?:\/\//.test(p.link) ? p.link : null,
   });
 
   // Sem nenhum hotel que atenda a todos os filtros, o Google devolve "non_matching_properties" (os mais próximos)
@@ -219,7 +234,13 @@ async function searchHotels(q: any) {
         : 'Nenhuma hospedagem com preço encontrada. Tente outro destino, datas ou menos filtros.',
     });
   }
-  return json(200, { price: options[0].total, perNight: options[0].perNight, options, partial });
+  return json(200, {
+    price: options[0].total,
+    perNight: options[0].perNight,
+    options,
+    partial,
+    googleUrl: googleHotelsUrl(propertyToken ? `${options[0].name} ${location}` : location, checkIn, checkOut, adults),
+  });
 }
 
 export async function POST(request: Request): Promise<Response> {

@@ -24,6 +24,7 @@ export function EditMonitorForm({ monitor: m, onSubmit, onCancel }: { monitor: M
 
   return (
     <form className="form" onSubmit={submit} noValidate>
+      <div className="form-card">
       <label className="field">
         <span>Nome</span>
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus />
@@ -49,13 +50,14 @@ export function EditMonitorForm({ monitor: m, onSubmit, onCancel }: { monitor: M
       </label>
 
       <ChoiceChips
-        label="Avisar quando variar em um dia"
+        segmented label="Avisar quando variar em um dia"
         value={alertPct}
         onChange={setAlertPct}
         options={Array.from(new Set([3, 5, 10, 15, alertPct])).sort((a, b) => a - b).map((v) => ({ value: v, label: `${String(v).replace('.', ',')}%` }))}
       />
+      </div>
 
-      {m.source === 'serpapi' && <p className="card-sub">Para mudar datas, trecho ou passageiros, crie um novo monitor.</p>}
+      {m.source === 'serpapi' && <p className="card-sub form-note">Para mudar datas, trecho ou passageiros, crie um novo monitor.</p>}
 
       {error && (
         <p className="form-error" role="alert">

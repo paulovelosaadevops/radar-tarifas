@@ -1,33 +1,71 @@
 import { useState } from 'react';
 import { LineChart } from '../components/charts';
-import { Delta, EmptyState, RangeFilter } from '../components/common';
+import { BackButton, CompactHeader, Delta, direction, EmptyState, Group, RangeFilter, rangeText, Row, TextButton, Toggle } from '../components/common';
+import { moneyInput, parseMoney } from '../components/fields';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { EditMonitorForm } from '../components/MonitorForm';
-import { moneyInput, parseMoney } from '../components/fields';
-import { AlertItem } from './Alerts';
+import { airlineSite } from '../data/airlines';
 import { querySummary } from '../data/describe';
 import { monitorStats, useRange } from '../data/stats';
 import { useStore } from '../data/store';
 import { CATEGORY_LABEL, type Monitor } from '../data/types';
-import { brl, brlAxis } from '../lib/format';
+import { brl, brlAxis, fmtRelativeDay } from '../lib/format';
+import { fallbackBookingUrl } from '../lib/prices';
 import { navigate } from '../lib/router';
+import { ALERT_KIND } from './Alerts';
 
 const LEVEL: Record<string, { label: string; tone: string }> = {
-  low: { label: 'Preço baixo', tone: 'good' },
-  typical: { label: 'Preço típico', tone: 'flat' },
-  high: { label: 'Preço alto', tone: 'bad' },
+  low: { label: 'Baixo para a rota', tone: 'good' },
+  typical: { label: 'Típico para a rota', tone: 'flat' },
+  high: { label: 'Alto para a rota', tone: 'bad' },
 };
+
+const LINE_COLOR = { good: 'var(--green)', bad: 'var(--red)', flat: 'var(--blue)' } as const;
 
 function fmtChecked(iso: string) {
   const d = new Date(iso);
   const sameDay = d.toDateString() === new Date().toDateString();
   return sameDay
-    ? `hoje às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    ? `hoje, ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
     : d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-function SourcePanel({ m }: { m: Monitor }) {
+/** Links para reservar: Google Flights/Hotels, site da companhia e do hotel */
+function BookingGroup({ m }: { m: Monitor }) {
+  if (m.source !== 'serpapi' || !m.query) return null;
+  const googleUrl = m.insights?.bookingUrl || fallbackBookingUrl(m);
+  const isFlight = m.query.kind === 'voo';
+  const airlines = (m.insights?.airlines ?? []).map(airlineSite).filter((a): a is { name: string; url: string } => !!a);
+  const uniqueAirlines = airlines.filter((a, i) => airlines.findIndex((b) => b.name === a.name) === i);
+
+  return (
+    <Group
+      header="Reservar"
+      footer={
+        isFlight
+          ? 'O Google Flights abre com o trecho, as datas e os passageiros preenchidos. Lá aparecem os botões para comprar direto com a companhia.'
+          : 'Os preços podem mudar até a hora da reserva.'
+      }
+    >
+      {googleUrl && (
+        <Row
+          icon={isFlight ? 'plane' : 'bed'}
+          tone="blue"
+          title={isFlight ? 'Ver voos no Google Flights' : 'Ver no Google Hotels'}
+          subtitle={isFlight ? 'Compare e escolha a companhia' : 'Compare preços entre sites de reserva'}
+          href={googleUrl}
+        />
+      )}
+      {uniqueAirlines.map((a) => (
+        <Row key={a.name} icon="globe" tone="indigo" title={`Site da ${a.name}`} subtitle="Companhia da opção mais barata" href={a.url} />
+      ))}
+      {m.insights?.siteUrl && <Row icon="house" tone="teal" title="Site do hotel" subtitle={m.query.kind === 'hotel' ? m.query.propertyName || m.insights.best || undefined : undefined} href={m.insights.siteUrl} />}
+    </Group>
+  );
+}
+
+function PriceGroup({ m }: { m: Monitor }) {
   const { refreshMonitor, recordPrice, refreshing } = useStore();
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
@@ -35,11 +73,9 @@ function SourcePanel({ m }: { m: Monitor }) {
 
   if (m.source === 'simulado') {
     return (
-      <section className="card source-card">
-        <p className="card-sub">
-          <strong>Monitor de exemplo.</strong> Os preços são simulados para demonstração. Crie um monitor de passagem ou hospedagem para ver preços reais.
-        </p>
-      </section>
+      <Group footer="Monitor de exemplo: os preços são simulados para demonstração. Crie um monitor de passagem ou hospedagem para ver preços reais.">
+        <Row icon="info" tone="gray" title="Preço simulado" />
+      </Group>
     );
   }
 
@@ -52,82 +88,51 @@ function SourcePanel({ m }: { m: Monitor }) {
       setError('');
     };
     return (
-      <section className="card source-card">
-        <div>
-          <h2>Registrar valor</h2>
-          <p className="card-sub">Esta tarifa é atualizada por você. {m.lastChecked ? `Último registro ${fmtChecked(m.lastChecked)}.` : ''}</p>
+      <Group header="Registrar valor" footer={error || (m.lastChecked ? `Último registro: ${fmtChecked(m.lastChecked)}. Esta tarifa é atualizada por você.` : 'Esta tarifa é atualizada por você.')}>
+        <div className="row row-input">
+          <span className="row-body">
+            <span className="money-input money-input-plain">
+              <span>R$</span>
+              <input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && save()}
+                inputMode="decimal"
+                placeholder={last != null ? moneyInput(last) : '0,00'}
+                aria-label="Novo valor"
+              />
+              {m.unit && <span>{m.unit}</span>}
+            </span>
+            <button type="button" className="btn btn-sm btn-tinted" onClick={save}>
+              Registrar
+            </button>
+          </span>
         </div>
-        <div className="record-row">
-          <div className="money-input">
-            <span>R$</span>
-            <input
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && save()}
-              inputMode="decimal"
-              placeholder={last != null ? moneyInput(last) : '0,00'}
-              aria-label="Novo valor"
-            />
-            {m.unit && <span>{m.unit}</span>}
-          </div>
-          <button type="button" className="btn btn-primary" onClick={save}>
-            Registrar
-          </button>
-        </div>
-        {error && <p className="form-error">{error}</p>}
-      </section>
+      </Group>
     );
   }
 
   const level = m.insights?.priceLevel ? LEVEL[m.insights.priceLevel] : null;
   return (
-    <section className="card source-card">
-      <div className="card-header">
-        <div>
-          <h2>{m.query?.kind === 'voo' ? 'Google Flights' : 'Google Hotels'}</h2>
-          <p className="card-sub">
-            {m.lastChecked ? `Atualizado ${fmtChecked(m.lastChecked)}` : 'Ainda não atualizado'} · busca automática 1 vez por dia
-          </p>
-        </div>
-        <button type="button" className="btn btn-sm" onClick={() => refreshMonitor(m.id)} disabled={refreshing}>
-          <Icon name="refresh" size={16} className={refreshing ? 'spin' : undefined} /> Atualizar
-        </button>
-      </div>
-
-      {m.lastError && (
-        <p className="form-error" role="alert">
-          {m.lastError}
-        </p>
-      )}
-
-      {(level || m.insights?.typicalRange || m.insights?.best) && (
-        <div className="insights">
-          {level && <span className={`level level-${level.tone}`}>{level.label}</span>}
-          {m.insights?.typicalRange && (
-            <span className="card-sub">
-              Normalmente entre {brl(m.insights.typicalRange[0])} e {brl(m.insights.typicalRange[1])}
-            </span>
-          )}
-          {m.insights?.best && <span className="card-sub">Melhor opção: {m.insights.best}</span>}
-        </div>
-      )}
-
-      {m.query && (
-        <dl className="summary">
-          {querySummary(m.query).map((row) => (
-            <div key={row.label}>
-              <dt>{row.label}</dt>
-              <dd>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </section>
+    <Group header={m.query?.kind === 'voo' ? 'Google Flights' : 'Google Hotels'} footer={m.lastError ? <span className="text-bad">{m.lastError}</span> : 'O app busca o preço de novo uma vez por dia, quando você abre.'}>
+      {level && <Row icon="chart" tone={level.tone === 'good' ? 'green' : level.tone === 'bad' ? 'red' : 'gray'} title="Preço atual" value={level.label} />}
+      {m.insights?.typicalRange && <Row icon="target" tone="orange" title="Normalmente" value={`${brlAxis(m.insights.typicalRange[0])} – ${brlAxis(m.insights.typicalRange[1])}`} />}
+      {m.insights?.best && <Row icon={m.query?.kind === 'voo' ? 'plane' : 'bed'} tone="indigo" title="Mais barato" value={m.insights.best} />}
+      <Row icon="clock" tone="gray" title="Atualizado" value={m.lastChecked ? fmtChecked(m.lastChecked) : 'nunca'} />
+      <Row
+        icon="refresh"
+        tone="green"
+        title={refreshing ? 'Atualizando…' : 'Atualizar agora'}
+        tint
+        onClick={() => refreshMonitor(m.id)}
+        disabled={refreshing}
+      />
+    </Group>
   );
 }
 
 export function MonitorDetail({ id }: { id: string }) {
-  const { monitors, alerts, updateMonitor, deleteMonitor, setPendingPrompt } = useStore();
+  const { monitors, alerts, updateMonitor, deleteMonitor, setPendingPrompt, markAlertRead } = useStore();
   const [range, setRange] = useRange('monitor');
   const [editing, setEditing] = useState(false);
   const [showTable, setShowTable] = useState(false);
@@ -137,8 +142,8 @@ export function MonitorDetail({ id }: { id: string }) {
     return (
       <div className="page">
         <EmptyState icon="chart" title="Monitor não encontrado">
-          <button type="button" className="btn" onClick={() => navigate('/')}>
-            Voltar ao painel
+          <button type="button" className="btn btn-tinted" onClick={() => navigate('/')}>
+            Voltar ao Radar
           </button>
         </EmptyState>
       </div>
@@ -149,6 +154,8 @@ export function MonitorDetail({ id }: { id: string }) {
   const fmt = (v: number) => brl(v, m.unit);
   const fmtTile = (v: number) => (v >= 100 ? brlAxis(v) + m.unit : fmt(v));
   const monitorAlerts = alerts.filter((a) => a.monitorId === m.id).slice(0, 5);
+  const isNew = s.points.length < 2;
+  const dir = direction(s.change);
 
   const onDelete = () => {
     if (confirm(`Excluir o monitor "${m.name}"? O histórico e os alertas dele serão apagados.`)) {
@@ -164,60 +171,38 @@ export function MonitorDetail({ id }: { id: string }) {
 
   return (
     <div className="page">
-      <div className="detail-top">
-        <button type="button" className="btn btn-ghost" onClick={() => navigate('/')}>
-          <Icon name="back" size={18} /> Painel
-        </button>
-        <div className="detail-actions">
-          <button type="button" className="icon-btn" onClick={() => setEditing(true)} aria-label="Editar monitor" title="Editar">
-            <Icon name="edit" />
-          </button>
-          <button type="button" className="icon-btn icon-btn-danger" onClick={onDelete} aria-label="Excluir monitor" title="Excluir">
-            <Icon name="trash" />
-          </button>
-        </div>
-      </div>
-
-      <header className="detail-header">
-        <span className="tag">{CATEGORY_LABEL[m.category]}</span>
-        <h1>{m.name}</h1>
-        {m.detail && <p className="muted">{m.detail}</p>}
-        <div className="detail-price">
-          <span className="price price-lg">{brl(s.current)}</span>
-          {m.unit && <span className="unit">{m.unit}</span>}
-        </div>
-        {s.points.length > 1 ? <Delta change={s.change} suffix={`em ${range} dias`} /> : <span className="delta delta-flat">Monitorando desde hoje</span>}
-      </header>
-
-      <SourcePanel m={m} />
-
-      <div className="filters">
-        <RangeFilter value={range} onChange={setRange} />
-      </div>
-
-      <section className="tiles tiles-3" aria-label={`Resumo de ${range} dias`}>
-        <div className="tile">
-          <span className="tile-label">Mínima</span>
-          <span className="tile-value tile-value-sm">{fmtTile(s.min)}</span>
-        </div>
-        <div className="tile">
-          <span className="tile-label">Média</span>
-          <span className="tile-value tile-value-sm">{fmtTile(s.avg)}</span>
-        </div>
-        <div className="tile">
-          <span className="tile-label">Máxima</span>
-          <span className="tile-value tile-value-sm">{fmtTile(s.max)}</span>
-        </div>
-      </section>
-
-      <section className="card" aria-labelledby="hist-title">
-        <div className="card-header">
-          <div>
-            <h2 id="hist-title">Histórico de preço</h2>
-            <p className="card-sub">Últimos {range} dias</p>
+      <CompactHeader
+        title={m.name}
+        leading={<BackButton label="Radar" onClick={() => navigate('/')} />}
+        trailing={<TextButton onClick={() => setEditing(true)}>Editar</TextButton>}
+      >
+        <header className="detail-header">
+          <span className="detail-eyebrow">
+            {CATEGORY_LABEL[m.category]}
+            {m.source === 'serpapi' && <span className="status status-good">Preço real</span>}
+            {m.source === 'simulado' && <span className="status">Exemplo</span>}
+            {!m.active && <span className="status">Pausado</span>}
+          </span>
+          <h1>{m.name}</h1>
+          {m.detail && <p className="detail-sub">{m.detail}</p>}
+          <div className="detail-price">
+            <span className="price-hero">{brl(s.current)}</span>
+            {m.unit && <span className="unit">{m.unit}</span>}
           </div>
-          <button type="button" className="icon-btn" onClick={() => setShowTable((v) => !v)} aria-pressed={showTable} title={showTable ? 'Ver gráfico' : 'Ver tabela'}>
-            <Icon name={showTable ? 'chart' : 'table'} />
+          {isNew ? <span className="delta delta-flat">Monitorando desde hoje</span> : <Delta change={s.change} suffix={rangeText(range)} />}
+        </header>
+      </CompactHeader>
+
+      <RangeFilter value={range} onChange={setRange} />
+
+      <section className="card chart-card" aria-labelledby="hist-title">
+        <div className="card-header">
+          <h2 id="hist-title" className="sr-only">
+            Histórico de preço
+          </h2>
+          <span className="card-sub">Histórico {rangeText(range).replace('em ', 'de ')}</span>
+          <button type="button" className="text-btn" onClick={() => setShowTable((v) => !v)} aria-pressed={showTable}>
+            {showTable ? 'Gráfico' : 'Tabela'}
           </button>
         </div>
 
@@ -227,7 +212,9 @@ export function MonitorDetail({ id }: { id: string }) {
               <thead>
                 <tr>
                   <th scope="col">Data</th>
-                  <th scope="col" className="num">Preço</th>
+                  <th scope="col" className="num">
+                    Preço
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -240,56 +227,91 @@ export function MonitorDetail({ id }: { id: string }) {
               </tbody>
             </table>
           </div>
-        ) : s.points.length < 2 ? (
-          <p className="muted">
-            O histórico começa hoje com {fmt(s.current)}. O gráfico aparece a partir do segundo dia de monitoramento
-            {m.source === 'serpapi' ? ': o app busca o preço de novo uma vez por dia, quando você abre.' : '.'}
-          </p>
+        ) : isNew ? (
+          <div className="chart-empty">
+            <Icon name="chart" size={28} />
+            <p>O gráfico aparece a partir do segundo dia de acompanhamento.</p>
+          </div>
         ) : (
           <LineChart
-            series={[{ id: m.id, label: m.name, color: 'var(--series-1)', points: s.points }]}
+            series={[{ id: m.id, label: m.name, color: LINE_COLOR[dir], points: s.points }]}
             format={fmt}
             axisFormat={brlAxis}
-            height={280}
+            height={260}
             area
             reference={m.targetPrice != null ? { value: m.targetPrice, label: `Alvo ${brl(m.targetPrice)}` } : null}
             label={`Histórico de preço de ${m.name}`}
           />
         )}
-      </section>
 
-      <section className="card">
-        <div className="setting-row">
+        <dl className="stats-strip">
           <div>
-            <h2>Monitoramento ativo</h2>
-            <p className="card-sub">
-              {m.targetPrice != null ? `Alvo ${brl(m.targetPrice, m.unit)} · ` : ''}avisa com variação de {String(m.alertPct).replace('.', ',')}% em um dia
-            </p>
+            <dt>Mínima</dt>
+            <dd>{fmtTile(s.min)}</dd>
           </div>
-          <label className="switch">
-            <input type="checkbox" checked={m.active} onChange={(e) => updateMonitor(m.id, { active: e.target.checked })} />
-            <span className="switch-track" aria-hidden="true" />
-            <span className="sr-only">Monitoramento ativo</span>
-          </label>
-        </div>
+          <div>
+            <dt>Média</dt>
+            <dd>{fmtTile(s.avg)}</dd>
+          </div>
+          <div>
+            <dt>Máxima</dt>
+            <dd>{fmtTile(s.max)}</dd>
+          </div>
+        </dl>
       </section>
 
-      <button type="button" className="btn btn-block btn-ai" onClick={askAI}>
-        <Icon name="sparkle" size={18} /> Perguntar à IA sobre este monitor
-      </button>
+      <BookingGroup m={m} />
+
+      <PriceGroup m={m} />
+
+      <Group header="Alerta">
+        <Row
+          icon="target"
+          tone="green"
+          title="Preço-alvo"
+          value={m.targetPrice != null ? brl(m.targetPrice, m.unit) : 'Nenhum'}
+          chevron
+          onClick={() => setEditing(true)}
+        />
+        <Row icon="bell" tone="red" title="Variação em um dia" value={`${String(m.alertPct).replace('.', ',')}%`} chevron onClick={() => setEditing(true)} />
+        <Row icon="radar" tone="blue" title="Monitoramento ativo" trailing={<Toggle checked={m.active} onChange={(v) => updateMonitor(m.id, { active: v })} label="Monitoramento ativo" />} />
+      </Group>
+
+      {m.query && (
+        <Group header="Busca">
+          {querySummary(m.query).map((row) => (
+            <Row key={row.label} title={row.label} value={row.value} multiline />
+          ))}
+        </Group>
+      )}
+
+      <Group>
+        <Row icon="sparkle" tone="purple" title="Perguntar ao RadÁ" subtitle="Vale a pena comprar agora ou esperar?" chevron onClick={askAI} />
+      </Group>
 
       {monitorAlerts.length > 0 && (
-        <section aria-labelledby="mon-alerts">
-          <h2 className="section-title" id="mon-alerts">
-            Alertas recentes
-          </h2>
-          <ul className="alert-list">
-            {monitorAlerts.map((a) => (
-              <AlertItem key={a.id} alert={a} />
-            ))}
-          </ul>
-        </section>
+        <Group header="Alertas recentes">
+          {monitorAlerts.map((a) => {
+            const k = ALERT_KIND[a.kind];
+            return (
+              <Row
+                key={a.id}
+                icon={k.icon}
+                tone={k.tone}
+                title={k.label}
+                subtitle={a.message}
+                value={fmtRelativeDay(a.date)}
+                multiline
+                onClick={() => markAlertRead(a.id)}
+              />
+            );
+          })}
+        </Group>
       )}
+
+      <Group>
+        <Row title="Excluir monitor" destructive center onClick={onDelete} />
+      </Group>
 
       {editing && (
         <Modal title="Editar monitor" onClose={() => setEditing(false)}>

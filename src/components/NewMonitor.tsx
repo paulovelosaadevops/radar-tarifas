@@ -16,7 +16,7 @@ import type { NewMonitor as NewMonitorData } from '../data/store';
 import type { Category, FlightQuery, HotelQuery, StopsFilter, TravelClass } from '../data/types';
 import { addDays, todayISO } from '../lib/dates';
 import { brl } from '../lib/format';
-import { searchFlights, searchHotels, type FlightResult, type HotelResult } from '../lib/prices';
+import { flightInsights, hotelInsights, searchFlights, searchHotels, type FlightResult, type HotelResult } from '../lib/prices';
 import { ChoiceChips, DateField, moneyInput, MultiChips, parseMoney, Section, Stepper, Switch } from './fields';
 import { Icon, type IconName } from './Icon';
 
@@ -34,10 +34,10 @@ export function NewMonitor({ onCreate, onCancel }: Props) {
 
 /* ---------- Escolha do tipo ---------- */
 
-const TYPES: { kind: Kind; icon: IconName; title: string; text: string; live?: boolean }[] = [
-  { kind: 'voo', icon: 'plane', title: 'Passagem aérea', text: 'Preço real do Google Flights, atualizado todo dia', live: true },
-  { kind: 'hotel', icon: 'bed', title: 'Hospedagem', text: 'Hotéis e pousadas pelo Google Hotels', live: true },
-  { kind: 'manual', icon: 'bolt', title: 'Outra tarifa', text: 'Energia, tarifa bancária ou outro valor que você registra' },
+const TYPES: { kind: Kind; icon: IconName; tone: string; title: string; text: string; live?: boolean }[] = [
+  { kind: 'voo', icon: 'plane', tone: 'blue', title: 'Passagem aérea', text: 'Preço real do Google Flights, atualizado todo dia', live: true },
+  { kind: 'hotel', icon: 'bed', tone: 'indigo', title: 'Hospedagem', text: 'Hotéis e pousadas pelo Google Hotels', live: true },
+  { kind: 'manual', icon: 'bolt', tone: 'orange', title: 'Outra tarifa', text: 'Energia, tarifa bancária ou outro valor que você registra' },
 ];
 
 function TypePicker({ onPick }: { onPick: (k: Kind) => void }) {
@@ -46,7 +46,7 @@ function TypePicker({ onPick }: { onPick: (k: Kind) => void }) {
       <p className="muted">O que você quer acompanhar?</p>
       {TYPES.map((t) => (
         <button key={t.kind} type="button" className="type-card" onClick={() => onPick(t.kind)}>
-          <span className="type-card-icon">
+          <span className={`type-card-icon tone-${t.tone}`}>
             <Icon name={t.icon} size={24} />
           </span>
           <span className="type-card-body">
@@ -125,7 +125,7 @@ function TrackingFields({
       )}
 
       <ChoiceChips
-        label="Também avisar quando variar em um dia"
+        segmented label="Também avisar quando variar em um dia"
         value={value.alertPct}
         onChange={(alertPct) => set({ alertPct })}
         options={[3, 5, 10, 15].map((v) => ({ value: v, label: `${v}%` }))}
@@ -253,7 +253,6 @@ function FlightForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void
     if (!result || !query) return search();
     const problem = trackingError(tracking);
     if (problem) return setError(problem);
-    const best = result.options[0];
     onCreate({
       name: tracking.name.trim(),
       category: 'voo',
@@ -264,11 +263,7 @@ function FlightForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void
       currentPrice: result.price,
       source: 'serpapi',
       query: { kind: 'voo', ...query },
-      insights: {
-        priceLevel: result.priceLevel,
-        typicalRange: result.typicalRange,
-        best: best ? `${best.airlines.join(' + ')} · ${best.stops === 0 ? 'voo direto' : `${best.stops} ${best.stops === 1 ? 'parada' : 'paradas'}`}` : null,
-      },
+      insights: flightInsights(result),
     });
   };
 
@@ -334,7 +329,7 @@ function FlightForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void
           options={([1, 2, 3, 4] as TravelClass[]).map((v) => ({ value: v, label: TRAVEL_CLASS_LABEL[v] }))}
         />
         <ChoiceChips
-          label="Paradas"
+          segmented label="Paradas"
           value={stops}
           onChange={setStops}
           options={[
@@ -385,6 +380,11 @@ function FlightForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void
                 </li>
               ))}
             </ul>
+            {result.googleUrl && (
+              <a className="text-link" href={result.googleUrl} target="_blank" rel="noopener noreferrer">
+                Ver todas as opções no Google Flights <Icon name="external" size={14} />
+              </a>
+            )}
           </div>
 
           <TrackingFields value={tracking} onChange={setTracking} price={result.price} />
@@ -502,7 +502,7 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
       currentPrice: price,
       source: 'serpapi',
       query: { kind: 'hotel', ...finalQuery },
-      insights: { best: option ? null : result.options[0]?.name ?? null },
+      insights: hotelInsights(result, option ?? null),
     });
   };
 
@@ -555,7 +555,7 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
 
       <Section icon="star" title="Filtros" aside={filterCount > 3 ? 'Muitos filtros podem zerar os resultados' : undefined}>
         <ChoiceChips
-          label="Avaliação dos hóspedes"
+          segmented label="Avaliação dos hóspedes"
           value={minRating}
           onChange={setMinRating}
           options={[
@@ -698,7 +698,7 @@ function ManualForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void
       <StepHeader icon="bolt" title="Outra tarifa" onBack={onBack} />
 
       <Section icon="bolt" title="Tarifa">
-        <ChoiceChips label="Tipo" value={category} onChange={setCategory} options={MANUAL_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))} />
+        <ChoiceChips segmented label="Tipo" value={category} onChange={setCategory} options={MANUAL_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))} />
         <label className="field">
           <span>Detalhes <em>(opcional)</em></span>
           <input value={detail} onChange={(e) => setDetail(e.target.value)} placeholder="Ex.: Distribuidora, plano ou conta" maxLength={120} />

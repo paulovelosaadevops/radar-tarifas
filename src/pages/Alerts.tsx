@@ -1,43 +1,38 @@
 import { useState } from 'react';
-import { EmptyState, PageHeader } from '../components/common';
-import { Icon, type IconName } from '../components/Icon';
+import { EmptyState, Group, LargeTitle, Row, Segmented, TextButton, type Tone } from '../components/common';
+import type { IconName } from '../components/Icon';
 import { useStore } from '../data/store';
 import type { Alert, AlertKind } from '../data/types';
 import { fmtRelativeDay } from '../lib/format';
 import { navigate } from '../lib/router';
 
-const KIND: Record<AlertKind, { label: string; icon: IconName; tone: 'good' | 'warning' }> = {
-  alvo: { label: 'Alvo atingido', icon: 'target', tone: 'good' },
-  queda: { label: 'Queda de preço', icon: 'down', tone: 'good' },
-  alta: { label: 'Alta de preço', icon: 'up', tone: 'warning' },
+export const ALERT_KIND: Record<AlertKind, { label: string; icon: IconName; tone: Tone }> = {
+  alvo: { label: 'Alvo atingido', icon: 'target', tone: 'green' },
+  queda: { label: 'Queda de preço', icon: 'down', tone: 'green' },
+  alta: { label: 'Alta de preço', icon: 'up', tone: 'orange' },
 };
 
-export function AlertItem({ alert: a }: { alert: Alert }) {
+function AlertRow({ alert: a }: { alert: Alert }) {
   const { markAlertRead } = useStore();
-  const kind = KIND[a.kind];
+  const k = ALERT_KIND[a.kind];
   return (
-    <li>
-      <button
-        type="button"
-        className={`alert-item${a.read ? '' : ' is-unread'}`}
-        onClick={() => {
-          markAlertRead(a.id);
-          navigate(`/monitor/${a.monitorId}`);
-        }}
-      >
-        <span className={`alert-icon tone-${kind.tone}`}>
-          <Icon name={kind.icon} size={18} />
+    <Row
+      icon={k.icon}
+      tone={k.tone}
+      title={
+        <span className="alert-title">
+          {!a.read && <span className="unread-dot" aria-label="não lido" />}
+          {k.label}
         </span>
-        <span className="alert-body">
-          <span className="alert-meta">
-            <strong>{kind.label}</strong>
-            <span className="muted">· {fmtRelativeDay(a.date)}</span>
-            {!a.read && <span className="dot" aria-label="não lido" />}
-          </span>
-          <span className="alert-message">{a.message}</span>
-        </span>
-      </button>
-    </li>
+      }
+      subtitle={a.message}
+      value={fmtRelativeDay(a.date)}
+      multiline
+      onClick={() => {
+        markAlertRead(a.id);
+        navigate(`/monitor/${a.monitorId}`);
+      }}
+    />
   );
 }
 
@@ -48,30 +43,23 @@ export function Alerts() {
 
   return (
     <div className="page">
-      <PageHeader
+      <LargeTitle
         title="Alertas"
         subtitle={unreadCount ? `${unreadCount} não ${unreadCount === 1 ? 'lido' : 'lidos'}` : 'Tudo em dia'}
-        actions={
-          unreadCount > 0 && (
-            <button type="button" className="btn" onClick={markAllRead}>
-              <Icon name="check" size={18} />
-              <span>Marcar todos como lidos</span>
-            </button>
-          )
-        }
+        trailing={unreadCount > 0 ? <TextButton onClick={markAllRead}>Ler todos</TextButton> : undefined}
       />
 
       {alerts.length > 0 && (
-        <div className="filters">
-          <div className="segmented" role="group" aria-label="Filtrar alertas">
-            <button type="button" className={filter === 'all' ? 'is-active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
-              Todos
-            </button>
-            <button type="button" className={filter === 'unread' ? 'is-active' : ''} aria-pressed={filter === 'unread'} onClick={() => setFilter('unread')}>
-              Não lidos {unreadCount > 0 && `(${unreadCount})`}
-            </button>
-          </div>
-        </div>
+        <Segmented
+          label="Filtrar alertas"
+          full
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: 'Todos' },
+            { value: 'unread', label: unreadCount ? `Não lidos (${unreadCount})` : 'Não lidos' },
+          ]}
+        />
       )}
 
       {visible.length === 0 ? (
@@ -79,21 +67,17 @@ export function Alerts() {
           <p>Você será avisado quando um preço cair, atingir o seu alvo ou, se ativar nos ajustes, subir.</p>
         </EmptyState>
       ) : (
-        <ul className="alert-list">
+        <Group>
           {visible.map((a) => (
-            <AlertItem key={a.id} alert={a} />
+            <AlertRow key={a.id} alert={a} />
           ))}
-        </ul>
+        </Group>
       )}
 
       {alerts.length > 0 && (
-        <button
-          type="button"
-          className="btn btn-ghost btn-danger-text"
-          onClick={() => confirm('Apagar todos os alertas?') && clearAlerts()}
-        >
-          <Icon name="trash" size={16} /> Apagar todos os alertas
-        </button>
+        <Group>
+          <Row title="Apagar todos os alertas" destructive center onClick={() => confirm('Apagar todos os alertas?') && clearAlerts()} />
+        </Group>
       )}
     </div>
   );

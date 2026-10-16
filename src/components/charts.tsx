@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { fmtLongDate, fmtShortDate } from '../lib/format';
 import type { PricePoint } from '../data/types';
 
@@ -48,6 +48,7 @@ type LineChartProps = {
 export function LineChart({ series, format, axisFormat = format, height = 240, area = false, reference, label }: LineChartProps) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
+  const gradientId = useId().replace(/:/g, '');
 
   const dates = series[0]?.points.map((p) => p.date) ?? [];
   const n = dates.length;
@@ -123,7 +124,7 @@ export function LineChart({ series, format, axisFormat = format, height = 240, a
           {reference && reference.value >= d0 && reference.value <= d1 && (
             <g>
               <line x1={ml} x2={width - mr} y1={y(reference.value)} y2={y(reference.value)} className="chart-reference" />
-              <text x={width - mr} y={y(reference.value) - 6} textAnchor="end" className="chart-reference-label">
+              <text x={ml + 6} y={y(reference.value) - 6} textAnchor="start" className="chart-reference-label">
                 {reference.label}
               </text>
             </g>
@@ -135,7 +136,15 @@ export function LineChart({ series, format, axisFormat = format, height = 240, a
             return (
               <g key={s.id}>
                 {area && n > 1 && (
-                  <path d={`${d}L${x(n - 1)},${mt + innerH}L${x(0)},${mt + innerH}Z`} style={{ fill: s.color }} opacity={0.1} />
+                  <>
+                    <defs>
+                      <linearGradient id={`${gradientId}-${s.id}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" style={{ stopColor: s.color, stopOpacity: 0.22 }} />
+                        <stop offset="100%" style={{ stopColor: s.color, stopOpacity: 0 }} />
+                      </linearGradient>
+                    </defs>
+                    <path d={`${d}L${x(n - 1)},${mt + innerH}L${x(0)},${mt + innerH}Z`} fill={`url(#${gradientId}-${s.id})`} />
+                  </>
                 )}
                 <path d={d} fill="none" style={{ stroke: s.color }} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
                 {last && hover == null && (
@@ -197,7 +206,7 @@ export function LineChart({ series, format, axisFormat = format, height = 240, a
   );
 }
 
-export function Sparkline({ points, height = 40 }: { points: PricePoint[]; height?: number }) {
+export function Sparkline({ points, height = 40, color = 'var(--label-3)' }: { points: PricePoint[]; height?: number; color?: string }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const values = points.map((p) => p.value);
   const min = Math.min(...values);
@@ -212,8 +221,8 @@ export function Sparkline({ points, height = 40 }: { points: PricePoint[]; heigh
     <div ref={ref} className="sparkline" style={{ height }} aria-hidden="true">
       {width > 0 && last && (
         <svg width={width} height={height}>
-          <path d={d} fill="none" className="sparkline-line" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-          <circle cx={x(points.length - 1)} cy={y(last.value)} r={4} className="sparkline-dot" />
+          <path d={d} fill="none" style={{ stroke: color }} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+          <circle cx={x(points.length - 1)} cy={y(last.value)} r={3.5} style={{ fill: color }} className="sparkline-dot" />
         </svg>
       )}
     </div>

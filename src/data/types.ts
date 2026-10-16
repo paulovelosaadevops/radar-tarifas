@@ -58,6 +58,12 @@ export type PriceInsights = {
   priceLevel?: 'low' | 'typical' | 'high' | null;
   typicalRange?: [number, number] | null;
   best?: string | null;
+  /** Companhias da melhor opção de voo (para o link do site de cada uma) */
+  airlines?: string[];
+  /** Google Flights / Google Hotels com a busca já preenchida */
+  bookingUrl?: string | null;
+  /** Site oficial do hotel acompanhado */
+  siteUrl?: string | null;
 };
 
 export type Monitor = {

@@ -11,6 +11,7 @@ export type FlightOption = {
 };
 
 export type FlightResult = {
+  googleUrl: string | null;
   price: number;
   priceLevel: PriceInsights['priceLevel'];
   typicalRange: [number, number] | null;
@@ -26,10 +27,45 @@ export type HotelOption = {
   reviews: number | null;
   stars: number | null;
   thumbnail: string | null;
+  link: string | null;
 };
 
 /** partial = nenhum hotel atende a todos os filtros; as opções são as mais próximas */
-export type HotelResult = { price: number; perNight: number | null; options: HotelOption[]; partial?: boolean };
+export type HotelResult = { price: number; perNight: number | null; options: HotelOption[]; partial?: boolean; googleUrl: string | null };
+
+export function flightInsights(r: FlightResult): PriceInsights {
+  const best = r.options[0];
+  return {
+    priceLevel: r.priceLevel,
+    typicalRange: r.typicalRange,
+    best: best ? `${best.airlines.join(' + ')} · ${best.stops === 0 ? 'voo direto' : `${best.stops} ${best.stops === 1 ? 'parada' : 'paradas'}`}` : null,
+    airlines: best?.airlines ?? [],
+    bookingUrl: r.googleUrl,
+  };
+}
+
+export function hotelInsights(r: HotelResult, tracked?: HotelOption | null): PriceInsights {
+  const option = tracked ?? r.options[0];
+  return {
+    best: tracked ? null : option?.name ?? null,
+    bookingUrl: r.googleUrl,
+    siteUrl: option?.link ?? null,
+  };
+}
+
+/** Link de reserva para monitores criados antes de existir o link salvo */
+export function fallbackBookingUrl(m: Monitor): string | null {
+  const q = m.query;
+  if (q?.kind === 'voo') {
+    const text = `Flights from ${q.origin} to ${q.destination} on ${q.departDate}${q.tripType === 'ida-volta' && q.returnDate ? ` through ${q.returnDate}` : ''}`;
+    return `https://www.google.com/travel/flights?q=${encodeURIComponent(text)}&hl=pt-BR&gl=br&curr=BRL`;
+  }
+  if (q?.kind === 'hotel') {
+    const params = new URLSearchParams({ q: q.propertyName ? `${q.propertyName} ${q.location}` : q.location, checkin: q.checkIn, checkout: q.checkOut, adults: String(q.adults), hl: 'pt-BR', gl: 'br', curr: 'BRL' });
+    return `https://www.google.com/travel/search?${params}`;
+  }
+  return null;
+}
 
 export type Quota = { plan: string; perMonth: number; left: number; used: number };
 
@@ -56,19 +92,11 @@ export const fetchQuota = () => request<Quota>('/api/cota');
 export async function fetchMonitorPrice(m: Monitor): Promise<{ price: number; insights: PriceInsights }> {
   if (m.query?.kind === 'voo') {
     const r = await searchFlights(m.query);
-    const best = r.options[0];
-    return {
-      price: r.price,
-      insights: {
-        priceLevel: r.priceLevel,
-        typicalRange: r.typicalRange,
-        best: best ? `${best.airlines.join(' + ')} · ${best.stops === 0 ? 'voo direto' : `${best.stops} ${best.stops === 1 ? 'parada' : 'paradas'}`}` : null,
-      },
-    };
+    return { price: r.price, insights: flightInsights(r) };
   }
   if (m.query?.kind === 'hotel') {
     const r = await searchHotels(m.query);
-    return { price: r.price, insights: { best: m.query.propertyToken ? null : r.options[0]?.name ?? null } };
+    return { price: r.price, insights: hotelInsights(r, m.query.propertyToken ? r.options[0] : null) };
   }
   throw new Error('Este monitor não tem busca automática.');
 }

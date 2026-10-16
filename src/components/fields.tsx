@@ -23,13 +23,15 @@ export function Stepper({
         <span className="stepper-label">{label}</span>
         {hint && <span className="stepper-hint">{hint}</span>}
       </div>
+      <output className="stepper-value" aria-live="polite">
+        {value}
+      </output>
       <div className="stepper" role="group" aria-label={label}>
         <button type="button" onClick={() => onChange(value - 1)} disabled={value <= min} aria-label={`Menos ${label.toLowerCase()}`}>
-          <Icon name="minus" size={18} />
+          <Icon name="minus" size={16} />
         </button>
-        <output aria-live="polite">{value}</output>
         <button type="button" onClick={() => onChange(value + 1)} disabled={value >= max} aria-label={`Mais ${label.toLowerCase()}`}>
-          <Icon name="plus" size={18} />
+          <Icon name="plus" size={16} />
         </button>
       </div>
     </div>
@@ -41,12 +43,29 @@ export function ChoiceChips<T extends string | number>({
   options,
   value,
   onChange,
+  segmented,
 }: {
   label: string;
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
+  /** Controle segmentado do iOS (para poucas opções curtas) */
+  segmented?: boolean;
 }) {
+  if (segmented) {
+    return (
+      <div className="field">
+        <span>{label}</span>
+        <div className="segmented segmented-full" role="radiogroup" aria-label={label}>
+          {options.map((o) => (
+            <button key={String(o.value)} type="button" role="radio" aria-checked={value === o.value} className={value === o.value ? 'is-active' : ''} onClick={() => onChange(o.value)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="field">
       <span>{label}</span>
@@ -118,18 +137,17 @@ export function MultiChips({
   );
 }
 
+/** Seção do formulário no estilo lista agrupada: título acima, conteúdo num cartão */
 export function Section({ icon, title, children, aside }: { icon: IconName; title: string; children: ReactNode; aside?: ReactNode }) {
   return (
-    <fieldset className="form-section">
-      <legend className="form-section-title">
-        <span className="form-section-icon">
-          <Icon name={icon} size={16} />
-        </span>
+    <section className="form-section" aria-label={title}>
+      <h3 className="form-section-title">
+        <Icon name={icon} size={14} />
         {title}
         {aside && <span className="form-section-aside">{aside}</span>}
-      </legend>
-      {children}
-    </fieldset>
+      </h3>
+      <div className="form-card">{children}</div>
+    </section>
   );
 }
 

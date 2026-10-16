@@ -28,7 +28,7 @@ function useTheme() {
       if (settings.theme === 'system') delete root.dataset.theme;
       else root.dataset.theme = settings.theme;
       const dark = settings.theme === 'dark' || (settings.theme === 'system' && media.matches);
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#17191E' : '#FFFFFF');
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#000000' : '#F2F2F7');
     };
     apply();
     media.addEventListener('change', apply);
