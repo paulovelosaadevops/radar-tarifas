@@ -64,8 +64,9 @@ export function flightPassengers(q: Pick<FlightQuery, 'adults' | 'children' | 'i
     .join(', ');
 }
 
-export function hotelGuests(q: Pick<HotelQuery, 'adults' | 'childrenAges'>): string {
-  return [plural(q.adults, 'adulto', 'adultos'), q.childrenAges.length ? plural(q.childrenAges.length, 'criança', 'crianças') : '']
+export function hotelGuests(q: Pick<HotelQuery, 'adults' | 'childrenAges' | 'childrenFree'>): string {
+  const kids = q.childrenAges.length;
+  return [plural(q.adults, 'adulto', 'adultos'), kids ? plural(kids, 'criança', 'crianças') + (q.childrenFree ? (kids === 1 ? ' grátis' : ' grátis') : '') : '']
     .filter(Boolean)
     .join(', ');
 }
@@ -129,6 +130,9 @@ export function querySummary(q: MonitorQuery): { label: string; value: string }[
       label: 'Hóspedes',
       value: hotelGuests(q) + (q.childrenAges.length ? ` (idades: ${q.childrenAges.map((a) => (a === 0 ? 'menos de 1' : a)).join(', ')})` : ''),
     },
+    ...(q.childrenAges.length
+      ? [{ label: 'Preço calculado para', value: q.childrenFree ? `${plural(q.adults, 'adulto', 'adultos')} (crianças não pagam)` : `${q.adults + q.childrenAges.length} pessoas (crianças pagam)` }]
+      : []),
     ...(q.minRating ? [{ label: 'Avaliação mínima', value: { 7: '3,5+', 8: '4,0+', 9: '4,5+' }[q.minRating] }] : []),
     ...(q.hotelClass?.length ? [{ label: 'Estrelas', value: q.hotelClass.join(', ') }] : []),
     ...(q.propertyTypes?.length ? [{ label: 'Tipo', value: typeLabels(q.propertyTypes).join(', ') }] : []),

@@ -434,6 +434,7 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
   const [checkOut, setCheckOut] = useState(addDays(today, 33));
   const [adults, setAdults] = useState(2);
   const [childrenAges, setChildrenAges] = useState<number[]>([]);
+  const [childrenFree, setChildrenFree] = useState(true);
   const [minRating, setMinRating] = useState<0 | 7 | 8 | 9>(0);
   const [hotelClass, setHotelClass] = useState<number[]>([]);
   const [freeCancellation, setFreeCancellation] = useState(false);
@@ -446,7 +447,19 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
   const [selected, setSelected] = useState<string>(CHEAPEST);
   const [tracking, setTracking] = useState<Tracking>({ name: '', target: '', alertPct: 5 });
 
-  const query: HotelQuery = { location: location.trim(), checkIn, checkOut, adults, childrenAges, minRating, hotelClass, freeCancellation, amenities, propertyTypes };
+  const query: HotelQuery = {
+    location: location.trim(),
+    checkIn,
+    checkOut,
+    adults,
+    childrenAges,
+    childrenFree: childrenAges.length > 0 ? childrenFree : undefined,
+    minRating,
+    hotelClass,
+    freeCancellation,
+    amenities,
+    propertyTypes,
+  };
   const filterCount = (minRating ? 1 : 0) + hotelClass.length + amenities.length + propertyTypes.length + (freeCancellation ? 1 : 0);
   const queryKey = JSON.stringify(query);
   useEffect(() => {
@@ -549,6 +562,18 @@ function HotelForm({ onBack, onCreate, onCancel }: Props & { onBack: () => void 
               </label>
             ))}
           </div>
+        )}
+        {childrenAges.length > 0 && (
+          <Switch
+            label="Crianças não pagam"
+            hint={
+              childrenFree
+                ? 'O preço considera só os adultos, como em muitos resorts. Desligue se o hotel cobra pelas crianças.'
+                : 'O Google cobra cada criança como um adulto. Ligue se o hotel não cobra crianças.'
+            }
+            checked={childrenFree}
+            onChange={setChildrenFree}
+          />
         )}
       </Section>
 

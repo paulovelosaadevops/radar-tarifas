@@ -187,6 +187,8 @@ async function searchHotels(q: any) {
   const adults = int(q?.adults, 'adultos', 1, 12);
   const childrenAges: number[] = Array.isArray(q?.childrenAges) ? q.childrenAges.map((a: unknown, i: number) => int(a, `idade da criança ${i + 1}`, 0, 17)) : [];
   if (childrenAges.length > 8) throw new BadRequest('No máximo 8 crianças por busca.');
+  // O Google cobra criança como adulto; com childrenFree o preço considera só os adultos
+  const pricedChildren = q?.childrenFree === true ? [] : childrenAges;
 
   const rating = q?.minRating ? int(q.minRating, 'avaliação mínima', 7, 9) : undefined;
   const classes: number[] = Array.isArray(q?.hotelClass) ? q.hotelClass.map((c: unknown) => int(c, 'estrelas', 2, 5)) : [];
@@ -200,9 +202,9 @@ async function searchHotels(q: any) {
     check_in_date: checkIn,
     check_out_date: checkOut,
     adults,
-    children: childrenAges.length,
+    children: pricedChildren.length,
     // A API não aceita idade 0: bebês contam como 1 ano
-    children_ages: childrenAges.length ? childrenAges.map((a) => Math.max(1, a)).join(',') : undefined,
+    children_ages: pricedChildren.length ? pricedChildren.map((a) => Math.max(1, a)).join(',') : undefined,
     // Sem sort_by: ordenar por preço no Google amplia a região (ex.: Sauípe → Porto Seguro). Ordenamos aqui.
     rating,
     hotel_class: classes.length ? classes.join(',') : undefined,

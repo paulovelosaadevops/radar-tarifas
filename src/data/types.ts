@@ -37,6 +37,11 @@ export type HotelQuery = {
   checkOut: string;
   adults: number;
   childrenAges: number[];
+  /**
+   * O Google Hotels cobra cada criança como adulto. Muitos resorts não cobram crianças:
+   * com true, o preço é calculado só pelos adultos.
+   */
+  childrenFree?: boolean;
   minRating?: 0 | 7 | 8 | 9;
   hotelClass?: number[];
   freeCancellation?: boolean;
